@@ -1,0 +1,16 @@
+{
+  "name": "高橋商店 勤怠管理",
+  "short_name": "勤怠",
+  "description": "高橋商店 従業員の勤怠・現場・交通費・遠方経費を記録するアプリ",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f4f6f8",
+  "theme_color": "#0d6e4f",
+  "orientation": "portrait",
+  "lang": "ja",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
