@@ -74,7 +74,9 @@
     border-radius:12px;background:#fff;color:var(--text);font-family:inherit}
   input:focus,select,textarea:focus{outline:none;border-color:var(--primary)}
   textarea{resize:vertical}
-  .voice{min-height:130px;font-size:22px;border-width:3px;border-color:var(--accent);background:#fffdf6}
+  .voice-label{font-size:19px;font-weight:800;color:var(--text);margin:8px 0 8px}
+  .voice{min-height:140px;font-size:23px;border-width:3px;border-color:var(--accent);background:#fffdf6}
+  .btn.ghost.listening{background:var(--danger);color:#fff;border-color:var(--danger)}
   .hint{font-size:13px;color:var(--muted);margin-top:6px}
   .row2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 
@@ -379,8 +381,11 @@ async function viewEntry(app){
 
   app.innerHTML = header(isEdit?'勤怠の修正':'勤怠入力', true) + `
     <div class="wrap">
-      <button class="btn mic-big" id="micBtn"><span class="mi">🎤</span>音声で入力</button>
-      <div class="hint mic-hint" id="micHint">ボタンか下の欄を押すとキーボードが開きます。キーボードのマイク 🎤 で話してください。</div>
+      <label class="voice-label">🎤 ここを押して話す</label>
+      <textarea id="f_voice" class="voice" autofocus placeholder="例：砂川市 明山邸 8時から18時 交通費5000円 遠方経費2000円"></textarea>
+      <div class="hint" id="micHint">入力欄を押すとキーボードが出ます。キーボードのマイク 🎤 を押して話すと、ここに文字が入り、自動で振り分けます。</div>
+      <button class="btn accent sm" id="parseBtn" style="margin-top:10px">解析する（自動でも実行されます）</button>
+      <button class="btn ghost sm" id="speechBtn" style="display:none;margin-top:10px">🎙️ パソコンのマイクで話す</button>
 
       <label>日付</label>
       <input id="f_date" type="date" value="${escapeHtml(rec.date)}">
@@ -394,11 +399,6 @@ async function viewEntry(app){
         <button data-v="half">半日</button>
         <button data-v="off">休み</button>
       </div>
-
-      <label>🎤 入力欄（ここを押す → キーボードのマイクで話す）</label>
-      <textarea id="f_voice" class="voice" placeholder="例：砂川市 明山邸 8時から18時 交通費5000円 遠方経費2000円"></textarea>
-      <button class="btn accent sm" id="parseBtn" style="margin-top:10px">この文章を解析して下に反映</button>
-      <div class="hint">マイクで話した文章を入れて「解析」を押すと、現場名・時間・交通費などへ自動で振り分けます。下で手直しできます。</div>
 
       <div id="detailFields">
         <label>現場名</label>
@@ -444,10 +444,12 @@ async function viewEntry(app){
   ['f_start','f_end','f_break'].forEach(id=> $('#'+id).addEventListener('input', recalcWork));
   paintSeg();
 
-  // 解析処理（手動の「解析」ボタンと、音声認識の終了後の両方から呼ぶ）
-  function runParse(){
+  // 解析処理（「解析」ボタン・入力欄のフォーカスアウト・音声認識終了から呼ぶ）
+  let lastParsedText='';
+  function runParse(opts){
+    const silent = opts && opts.silent;
     const txt=$('#f_voice').value;
-    if(!txt.trim()){ toast('音声入力の文章を入れてください'); return; }
+    if(!txt.trim()){ if(!silent) toast('入力欄に文章を入れてください'); return; }
     const p=parseVoiceInput(txt);
     if(p.siteName) $('#f_site').value=p.siteName;
     if(p.startTime) $('#f_start').value=p.startTime;
@@ -456,58 +458,52 @@ async function viewEntry(app){
     $('#f_trans').value=p.transportCost;
     $('#f_remote').value=p.remoteCost;
     status=p.workStatus; paintSeg();
+    lastParsedText=txt;
     toast('解析しました。内容を確認してください');
   }
-  $('#parseBtn').onclick=runParse;
+  $('#parseBtn').onclick=()=>runParse();
 
-  // 上部の大きなマイクボタン
-  // 基本方針：スマホは「標準キーボードの音声入力」を使う（ボタンは入力欄を開くだけ）。
-  // Mac Chrome などデスクトップで Web Speech API が使える場合のみ、ボタンで実際に音声認識する。
-  const micBtn=$('#micBtn');
+  const voice=$('#f_voice');
   const micHint=$('#micHint');
-  const voiceEl=()=>$('#f_voice');
+
+  // 画面を開いたら入力欄へ自動フォーカス（対応端末ではキーボードがすぐ開く）
+  // ※iPhone Safari はセキュリティ上、画面遷移直後の自動表示が効かない場合があるため、
+  //   その場合は大きな入力欄を1回タップすればキーボードが出る作りにしている。
+  setTimeout(()=>{ try{ voice.focus({preventScroll:true}); }catch(e){ try{ voice.focus(); }catch(_){}}; }, 80);
+
+  // 話し終えてフォーカスが外れたら自動で解析（手修正の上書き防止：本文が変わった時だけ）
+  voice.addEventListener('blur', ()=>{
+    const t=voice.value.trim();
+    if(t && t!==lastParsedText) runParse();
+  });
+
+  // パソコン（Mac Chrome 等）だけ：Web Speech API のマイクボタンを表示。音声データ自体は保存しない。
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)
                 || (window.matchMedia && window.matchMedia('(pointer:coarse)').matches);
-  const useSpeech = !!SR && !isMobile;   // デスクトップ＋対応ブラウザのときだけ音声認識を使う
-
-  // 入力欄を開く（標準キーボード音声入力 or 手入力用）
-  function openKeyboard(){ const v=voiceEl(); v.focus(); v.scrollIntoView({behavior:'smooth',block:'center'}); }
-
-  if(useSpeech){
-    // パソコン（Mac Chrome 等）：ボタンで Web Speech API による音声認識。音声データ自体は保存しない。
-    micHint.innerHTML='ボタンを押すとマイクの使用許可を聞かれます。許可して話すと自動で文字に起こして振り分けます。<br>下の欄に直接入力／修正もできます。';
+  const speechBtn=$('#speechBtn');
+  if(SR && !isMobile){
+    micHint.innerHTML='入力欄を押すと文字入力できます。パソコンの場合は下の「🎙️ パソコンのマイクで話す」から音声認識も使えます。';
+    speechBtn.style.display='block';
     let recog=null, listening=false, baseText='';
-    const resetLabel=()=>{ micBtn.innerHTML='<span class="mi">🎤</span>音声で入力'; micBtn.classList.remove('listening'); };
-    micBtn.onclick=()=>{
+    const reset=()=>{ speechBtn.textContent='🎙️ パソコンのマイクで話す'; speechBtn.classList.remove('listening'); };
+    speechBtn.onclick=()=>{
       if(listening){ try{ recog.stop(); }catch(e){} return; }   // もう一度押すと停止
       recog=new SR();
       recog.lang='ja-JP'; recog.interimResults=true; recog.continuous=false; recog.maxAlternatives=1;
-      baseText = voiceEl().value ? voiceEl().value.trim()+' ' : '';
-      recog.onstart=()=>{
-        listening=true;
-        micBtn.innerHTML='<span class="mi">🎙️</span>聞いています…（押すと停止）';
-        micBtn.classList.add('listening');
-        voiceEl().scrollIntoView({behavior:'smooth',block:'center'});
-      };
-      recog.onresult=(e)=>{
-        let txt=''; for(let i=0;i<e.results.length;i++){ txt += e.results[i][0].transcript; }
-        voiceEl().value = baseText + txt;
-      };
+      baseText = voice.value ? voice.value.trim()+' ' : '';
+      recog.onstart=()=>{ listening=true; speechBtn.textContent='🎙️ 聞いています…（押すと停止）'; speechBtn.classList.add('listening'); };
+      recog.onresult=(e)=>{ let t=''; for(let i=0;i<e.results.length;i++){ t += e.results[i][0].transcript; } voice.value=baseText+t; };
       recog.onerror=(e)=>{
-        listening=false; resetLabel();
-        if(e.error==='not-allowed' || e.error==='service-not-allowed') toast('マイクの使用が許可されていません。下の欄に直接入力もできます');
+        listening=false; reset();
+        if(e.error==='not-allowed' || e.error==='service-not-allowed') toast('マイクの使用が許可されていません。入力欄に直接入力もできます');
         else if(e.error==='no-speech') toast('音声を聞き取れませんでした');
         else toast('音声認識エラー: '+e.error);
       };
-      recog.onend=()=>{ listening=false; resetLabel(); if(voiceEl().value.trim()) runParse(); };
+      recog.onend=()=>{ listening=false; reset(); const t=voice.value.trim(); if(t && t!==lastParsedText) runParse(); };
       try{ recog.start(); }                            // 初回はここでマイク許可ダイアログが出る
-      catch(err){ listening=false; resetLabel(); toast('音声認識を開始できませんでした'); openKeyboard(); }
+      catch(err){ listening=false; reset(); toast('音声認識を開始できませんでした'); }
     };
-  } else {
-    // スマホ／タブレット、または Web Speech 非対応 → 標準キーボードの音声入力を使う（基本方式）
-    micHint.innerHTML='ボタンか下の欄を押すとキーボードが開きます。キーボードのマイク 🎤 を押して話すと、内容が下の欄に文字で入ります。<br>話し終えたら「解析」を押してください。';
-    micBtn.onclick=openKeyboard;
   }
 
   // 保存

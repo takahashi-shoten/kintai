@@ -1,7 +1,7 @@
 // 高橋商店 勤怠管理アプリ Service Worker
 // オフラインでも開けるように、アプリ本体ファイルをキャッシュします。
 // データ（勤怠記録）は localStorage に保存されるため、ここでは扱いません。
-const CACHE_NAME = 'kintai-v1';
+const CACHE_NAME = 'kintai-v2';
 const ASSETS = [
   './',
   './index.html',
