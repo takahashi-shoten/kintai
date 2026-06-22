@@ -1181,12 +1181,56 @@ function exportCsv(recs, ym, empWageMap={}){
   toast('CSVを書き出しました');
 }
 
-/* ---------- 弥生青色申告用 CSV出力（実エクスポートファイル互換 6列形式） ---------- */
+/* ---------- Shift-JIS エンコーダ（TextDecoder逆引き方式・外部ライブラリ不要） ---------- */
+let _sjisMap = null;
+function buildSjisMap() {
+  const map = {};
+  const dec = new TextDecoder('shift-jis', {fatal: false});
+  // 半角カタカナ（1バイト: 0xA1-0xDF）
+  for (let b = 0xA1; b <= 0xDF; b++) {
+    const s = dec.decode(new Uint8Array([b]));
+    if (s.length === 1 && s.charCodeAt(0) > 0x7F) map[s.charCodeAt(0)] = b;
+  }
+  // 2バイト文字（全角・漢字等）
+  const buf = new Uint8Array(2);
+  for (let b1 = 0x81; b1 <= 0xFC; b1++) {
+    if (b1 >= 0xA0 && b1 <= 0xDF) continue; // 半角カタカナ領域はスキップ
+    buf[0] = b1;
+    for (let b2 = 0x40; b2 <= 0xFC; b2++) {
+      if (b2 === 0x7F) continue;
+      buf[1] = b2;
+      const s = dec.decode(buf);
+      if (s.length === 1 && s.charCodeAt(0) > 0xFF) {
+        const cp = s.charCodeAt(0);
+        if (!(cp in map)) map[cp] = (b1 << 8) | b2;
+      }
+    }
+  }
+  return map;
+}
+function strToShiftJIS(str) {
+  if (!_sjisMap) _sjisMap = buildSjisMap();
+  const bytes = [];
+  for (let i = 0; i < str.length; i++) {
+    const cp = str.charCodeAt(i);
+    if (cp < 0x80) {
+      bytes.push(cp);
+    } else if (cp in _sjisMap) {
+      const v = _sjisMap[cp];
+      if (v > 0xFF) { bytes.push(v >>> 8, v & 0xFF); } else { bytes.push(v); }
+    } else {
+      bytes.push(0x3F); // '?' 変換不能文字
+    }
+  }
+  return new Uint8Array(bytes);
+}
+
+/* ---------- 弥生青色申告用 TXT出力（Shift-JIS・6列形式・実ファイル互換） ---------- */
 /* 列構成: "日付","勘定科目","借方"/"貸方","補助科目","","金額"  ヘッダー行なし */
 function exportYayoiCsv(recs, ym, empWageMap={}, expenseAccount='旅費交通費', creditAccount='普通預金', empBankMap={}){
   const [y, m] = ym.split('-').map(Number);
   const lastDay = new Date(y, m, 0).getDate();
-  const dateStr = `${y}/${pad2(m)}/${pad2(lastDay)}`;   // YYYY/MM/DD（スラッシュあり）
+  const dateStr = `${y}/${pad2(m)}/${pad2(lastDay)}`; // YYYY/MM/DD
 
   // 従業員別に給与（基本日当＋残業代）・交通費・遠方経費を集計
   const byEmp = {};
@@ -1204,7 +1248,7 @@ function exportYayoiCsv(recs, ym, empWageMap={}, expenseAccount='旅費交通費
     byEmp[name].remote += remote;
   });
 
-  // 実ファイルと同じ形式：全フィールドをダブルクォートで囲む・ヘッダーなし
+  // 全フィールドをダブルクォートで囲む・ヘッダーなし（実ファイルと同じ形式）
   const q = v => `"${String(v).replace(/"/g, '""')}"`;
   const makeRow = (account, side, sub, amount) =>
     [q(dateStr), q(account), q(side), q(sub), q(''), q(amount)].join(',');
@@ -1214,7 +1258,7 @@ function exportYayoiCsv(recs, ym, empWageMap={}, expenseAccount='旅費交通費
     const e = byEmp[name];
     const bankName = empBankMap[name] || '';
     if(e.salary > 0){
-      lines.push(makeRow('給料手当',  '借方', name,     e.salary));
+      lines.push(makeRow('給料手当',    '借方', name,     e.salary));
       lines.push(makeRow(creditAccount, '貸方', bankName, e.salary));
     }
     if(e.transport > 0){
@@ -1227,14 +1271,15 @@ function exportYayoiCsv(recs, ym, empWageMap={}, expenseAccount='旅費交通費
     }
   });
 
-  // UTF-8 BOM付き（弥生オンラインはUTF-8 BOM対応）
-  const blob = new Blob(['﻿' + lines.join('\r\n')], {type:'text/csv;charset=utf-8'});
+  // Shift-JISエンコードして.txtとして出力（弥生インポート仕様に合わせる）
+  const sjisBytes = strToShiftJIS(lines.join('\r\n'));
+  const blob = new Blob([sjisBytes], {type: 'text/plain;charset=shift_jis'});
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
-  a.href=url; a.download='弥生_'+ym+'.csv';
+  a.href = url; a.download = '弥生_' + ym + '.txt';
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(()=>URL.revokeObjectURL(url), 2000);
-  toast('弥生CSVを書き出しました');
+  toast('弥生TXTを書き出しました（Shift-JIS）');
 }
 
 /* ---------- 起動 ---------- */
