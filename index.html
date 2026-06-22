@@ -186,6 +186,16 @@ function fmtMin(min){
 function dayValue(status){ return status==='present'?1 : status==='half'?0.5 : 0; }
 const STATUS_LABEL={present:'出勤',half:'半日',off:'休み'};
 
+// 残業時間自動算出
+// 18:59まで→0 / 19:00〜19:24→1.0h / 19:25〜19:54→1.5h / 以降30分刻みで+0.5h
+function calcOvertime(endTimeStr){
+  const end=timeToMin(endTimeStr);
+  if(!end || end<19*60) return 0;       // 〜18:59 は残業なし
+  const over=end-19*60;                  // 19:00 からの超過分（分）
+  if(over<=24) return 1;
+  return 1.5+Math.floor((over-25)/30)*0.5;
+}
+
 /* =====================================================================
    音声入力テキストの解析
    例:「砂川市 明山邸 8時から18時 交通費5000円 遠方経費2000円」
@@ -201,7 +211,7 @@ function toHalfWidth(str){
 function parseYen(str){ return parseInt(String(str).replace(/[, ]/g,''),10)||0; }
 
 function parseVoiceInput(text){
-  const res={ siteName:'', startTime:'', endTime:'', breakMinutes:60,
+  const res={ siteName:'', startTime:'', endTime:'', breakMinutes:120,
               transportCost:0, remoteCost:0, memo:'', workStatus:'present' };
   if(!text || !text.trim()) return res;
   const s = toHalfWidth(text.trim());
@@ -377,8 +387,16 @@ async function viewHome(app){
       </div>
       <div class="card">
         <h3>従業員名（この端末の既定）</h3>
-        <input id="empName" type="text" placeholder="例：高橋 太郎" value="${escapeHtml(name)}">
-        <div class="hint">入力画面で自動的に使われます。あとから変更できます。</div>
+        ${name
+          ? `<div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+              <div>
+                <div style="font-size:19px;font-weight:700">${escapeHtml(name)}</div>
+                <div class="hint" style="margin-top:3px">変更は管理者のみ可能です</div>
+              </div>
+              <button class="btn ghost sm" id="changeNameBtn" style="width:auto">変更</button>
+             </div>`
+          : `<input id="empName" type="text" placeholder="例：高橋 太郎" value="">
+             <div class="hint">入力後は固定されます。変更は管理者に依頼してください。</div>`}
       </div>
       <button class="btn ghost" id="bossBtn" style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;font-size:18px;margin-top:14px">
         <span>👤 社長確認画面</span><span style="font-size:20px;opacity:.5">›</span>
@@ -386,8 +404,19 @@ async function viewHome(app){
       <p class="footnote">最小機能版 v1 ・ データはこの端末に保存されます</p>
     </div>`;
   app.querySelectorAll('[data-go]').forEach(el=> el.onclick=()=>go(el.dataset.go));
-  const emp=$('#empName');
-  emp.onchange=()=> Store.setSetting('employeeName', emp.value.trim());
+  if(name){
+    $('#changeNameBtn').onclick = () => {
+      const pin = prompt('管理者暗証番号を入力してください');
+      if(pin === null) return;
+      if(pin !== BOSS_PIN){ toast('暗証番号が違います'); return; }
+      const newName = prompt('新しい従業員名を入力してください', name);
+      if(newName === null || !newName.trim()) return;
+      Store.setSetting('employeeName', newName.trim()).then(() => render());
+    };
+  } else {
+    const emp=$('#empName');
+    emp.onchange=()=> Store.setSetting('employeeName', emp.value.trim());
+  }
   $('#bossBtn').onclick=()=> showPinPrompt();
 }
 function todayStrLabel(){ return fmtDate(todayStr()); }
@@ -409,7 +438,7 @@ async function viewEntry(app){
   const isEdit = !!(rec && rec.id);
   if(!rec){
     rec = { id:null, date:todayStr(), employeeName: await Store.getSetting('employeeName',''),
-            siteName:'', startTime:'', endTime:'', breakMinutes:60, workStatus:'present',
+            siteName:'', startTime:'', endTime:'', breakMinutes:120, workStatus:'present',
             transportCost:0, remoteCost:0, memo:'' };
   }
 
@@ -445,6 +474,10 @@ async function viewEntry(app){
         <div class="row2">
           <div><label>休憩（分）</label><input id="f_break" type="number" inputmode="numeric" min="0" value="${Number(rec.breakMinutes)||0}"></div>
           <div><label>実働時間</label><input id="f_work" type="text" readonly value=""></div>
+        </div>
+        <div class="row2">
+          <div><label>残業（時間）</label><input id="f_ot" type="number" inputmode="decimal" min="0" step="0.5" value="${rec.overtimeHours!=null?rec.overtimeHours:calcOvertime(rec.endTime)}"></div>
+          <div></div>
         </div>
         <div class="row2">
           <div><label>交通費（円）</label><input id="f_trans" type="number" inputmode="numeric" min="0" value="${Number(rec.transportCost)||0}"></div>
@@ -497,7 +530,11 @@ async function viewEntry(app){
     const tmp={ workStatus:status, startTime:$('#f_start').value, endTime:$('#f_end').value, breakMinutes:Number($('#f_break').value)||0 };
     $('#f_work').value = fmtMin(workMinutes(tmp));
   }
-  ['f_start','f_end','f_break'].forEach(id=> $('#'+id).addEventListener('input', recalcWork));
+  ['f_start','f_break'].forEach(id=> $('#'+id).addEventListener('input', recalcWork));
+  $('#f_end').addEventListener('input', ()=>{
+    recalcWork();
+    $('#f_ot').value = calcOvertime($('#f_end').value);
+  });
   paintSeg();
 
   // 解析処理（「解析」ボタン・入力欄のフォーカスアウト・音声認識終了から呼ぶ）
@@ -509,7 +546,7 @@ async function viewEntry(app){
     const p=parseVoiceInput(txt);
     if(p.siteName) $('#f_site').value=p.siteName;
     if(p.startTime) $('#f_start').value=p.startTime;
-    if(p.endTime) $('#f_end').value=p.endTime;
+    if(p.endTime){ $('#f_end').value=p.endTime; $('#f_ot').value=calcOvertime(p.endTime); }
     $('#f_break').value=p.breakMinutes;
     $('#f_trans').value=p.transportCost;
     $('#f_remote').value=p.remoteCost;
@@ -624,6 +661,7 @@ async function viewEntry(app){
       startTime: $('#f_start').value,
       endTime: $('#f_end').value,
       breakMinutes: Number($('#f_break').value)||0,
+      overtimeHours: Number($('#f_ot').value)||0,
       workStatus: status,
       transportCost: Number($('#f_trans').value)||0,
       remoteCost: Number($('#f_remote').value)||0,
@@ -679,13 +717,16 @@ async function viewList(app){
   await drawList();
 
   async function drawList(){
-    const recs=await Store.getByMonth(selectedMonth);
+    const myName = await Store.getSetting('employeeName','');
+    const all = await Store.getByMonth(selectedMonth);
+    const recs = myName ? all.filter(r=>r.employeeName===myName) : all;
     const body=$('#listBody');
     if(!recs.length){ body.innerHTML=`<div class="empty">この月の記録はまだありません。<br>「＋入力」から登録できます。</div>`; return; }
     body.innerHTML = recs.map(r=>{
       const cls = r.workStatus==='off'?'off':r.workStatus==='half'?'half':'';
+      const ot = Number(r.overtimeHours)||0;
       const meta = r.workStatus==='off' ? 'お休み'
-        : `${r.startTime||'--'}〜${r.endTime||'--'} ・ 実働${fmtMin(workMinutes(r))} ・ 交${yen(r.transportCost)} 遠${yen(r.remoteCost)}`;
+        : `${r.startTime||'--'}〜${r.endTime||'--'} ・ 実働${fmtMin(workMinutes(r))}${ot?' ・ 残業'+ot+'時間':''} ・ 交${yen(r.transportCost)} 遠${yen(r.remoteCost)}`;
       return `<button class="rec ${cls}" data-id="${r.id}">
         <div class="d"><span class="date">${fmtDate(r.date)}</span><span class="badge">${STATUS_LABEL[r.workStatus]}</span></div>
         <div class="site">${escapeHtml(r.siteName||'（現場名なし）')}</div>
@@ -731,7 +772,9 @@ async function viewSummary(app){
   await drawSum();
 
   async function drawSum(){
-    const recs=await Store.getByMonth(selectedMonth);
+    const myName = await Store.getSetting('employeeName','');
+    const all = await Store.getByMonth(selectedMonth);
+    const recs = myName ? all.filter(r=>r.employeeName===myName) : all;
     const body=$('#sumBody');
     if(!recs.length){ body.innerHTML=`<div class="empty">この月の記録はまだありません。</div>`; return; }
     body.innerHTML = summaryHtml(summarize(recs));
