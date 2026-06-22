@@ -74,7 +74,6 @@
     border-radius:12px;background:#fff;color:var(--text);font-family:inherit}
   input:focus,select,textarea:focus{outline:none;border-color:var(--primary)}
   textarea{resize:vertical}
-  .voice-label{font-size:19px;font-weight:800;color:var(--text);margin:8px 0 8px}
   .voice{min-height:140px;font-size:23px;border-width:3px;border-color:var(--accent);background:#fffdf6}
   .btn.ghost.listening{background:var(--danger);color:#fff;border-color:var(--danger)}
   .hint{font-size:13px;color:var(--muted);margin-top:6px}
@@ -381,7 +380,6 @@ async function viewEntry(app){
 
   app.innerHTML = header(isEdit?'勤怠の修正':'勤怠入力', true) + `
     <div class="wrap">
-      <label class="voice-label">🎤 ここを押して話す</label>
       <textarea id="f_voice" class="voice" autofocus placeholder="例：砂川市 明山邸 8時から18時 交通費5000円 遠方経費2000円"></textarea>
       <div class="hint" id="micHint">入力欄を押すとキーボードが出ます。キーボードのマイク 🎤 を押して話すと、ここに文字が入り、自動で振り分けます。</div>
       <button class="btn accent sm" id="parseBtn" style="margin-top:10px">解析する（自動でも実行されます）</button>
