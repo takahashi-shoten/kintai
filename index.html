@@ -300,7 +300,29 @@ const Store = {
   // 設定（既定の従業員名など）
   _settings(){ try{ return JSON.parse(localStorage.getItem(this.SETTINGS_KEY))||{}; }catch(e){ return {}; } },
   async getSetting(k, def){ const v=this._settings()[k]; return v==null?def:v; },
-  async setSetting(k,v){ const s=this._settings(); s[k]=v; localStorage.setItem(this.SETTINGS_KEY, JSON.stringify(s)); }
+  async setSetting(k,v){ const s=this._settings(); s[k]=v; localStorage.setItem(this.SETTINGS_KEY, JSON.stringify(s)); },
+
+  // 従業員マスター
+  EMPLOYEES_KEY: 'kintai_employees_v1',
+  _readEmps(){ try{ return JSON.parse(localStorage.getItem(this.EMPLOYEES_KEY))||[]; }catch(e){ return []; } },
+  _writeEmps(list){ localStorage.setItem(this.EMPLOYEES_KEY, JSON.stringify(list)); },
+  async getEmployees(){ return this._readEmps().slice().sort((a,b)=> a.name<b.name?-1:1); },
+  async saveEmployee(emp){
+    const list=this._readEmps();
+    if(emp.id){
+      const i=list.findIndex(e=>e.id===emp.id);
+      if(i>=0){ list[i]=emp; } else { list.push(emp); }
+    } else {
+      emp.id='e_'+Date.now()+'_'+Math.random().toString(36).slice(2,7);
+      list.push(emp);
+    }
+    this._writeEmps(list); return emp;
+  },
+  async removeEmployee(id){ this._writeEmps(this._readEmps().filter(e=>e.id!==id)); },
+  async getEmployeeWage(name){
+    const e=this._readEmps().find(e=>e.name===name);
+    return e ? (Number(e.dailyWage)||0) : 0;
+  }
 };
 
 /* =====================================================================
@@ -332,6 +354,7 @@ async function render(){
   else if(route==='/list')  await viewList(app);
   else if(route==='/summary') await viewSummary(app);
   else if(route==='/boss')  await viewBoss(app);
+  else if(route==='/employees') await viewEmployees(app);
   else                      await viewHome(app);
   const back=$('#backBtn'); if(back) back.onclick=()=>go('/');
   window.scrollTo(0,0);
@@ -389,6 +412,7 @@ async function viewEntry(app){
       <input id="f_date" type="date" value="${escapeHtml(rec.date)}">
 
       <label>従業員名</label>
+      <select id="f_emp_sel" style="display:none"></select>
       <input id="f_emp" type="text" value="${escapeHtml(rec.employeeName)}" placeholder="例：高橋 太郎">
 
       <label>出勤区分</label>
@@ -434,6 +458,28 @@ async function viewEntry(app){
     recalcWork();
   }
   seg.querySelectorAll('button').forEach(b=> b.onclick=()=>{ status=b.dataset.v; paintSeg(); });
+
+  // 従業員セレクト（登録がある場合はドロップダウンで選択）
+  const emps = await Store.getEmployees();
+  const empSel = $('#f_emp_sel');
+  const empInp = $('#f_emp');
+  if(emps.length > 0){
+    const isKnown = emps.some(e => e.name === rec.employeeName);
+    empSel.innerHTML = '<option value="">名前を選んでください</option>' +
+      emps.map(e => `<option value="${escapeHtml(e.name)}"${e.name===rec.employeeName?' selected':''}>${escapeHtml(e.name)}</option>`).join('') +
+      '<option value="__manual__"'+(rec.employeeName&&!isKnown?' selected':'')+'>その他（直接入力）</option>';
+    empSel.style.display = '';
+    empInp.style.display = (rec.employeeName && isKnown) ? 'none' : '';
+    empSel.onchange = () => {
+      if(empSel.value === '__manual__' || empSel.value === ''){
+        empInp.style.display = '';
+        if(empSel.value === '') empInp.value = '';
+      } else {
+        empInp.value = empSel.value;
+        empInp.style.display = 'none';
+      }
+    };
+  }
 
   function recalcWork(){
     const tmp={ workStatus:status, startTime:$('#f_start').value, endTime:$('#f_end').value, breakMinutes:Number($('#f_break').value)||0 };
@@ -704,13 +750,80 @@ function summaryHtml(s){
     </div>`;
 }
 
+/* ---------- 社長用集計（日当含む） ---------- */
+function summarizeBoss(recs, empWageMap){
+  const s={days:0,present:0,half:0,off:0,transport:0,remote:0,workMin:0,sites:{},
+           totalWage:0,totalPayment:0,byEmployee:{}};
+  recs.forEach(r=>{
+    const dv=dayValue(r.workStatus);
+    const earned=(empWageMap[r.employeeName]||0)*dv;
+    const trans=Number(r.transportCost)||0;
+    const remote=Number(r.remoteCost)||0;
+    s.days+=dv;
+    if(r.workStatus==='present') s.present++;
+    else if(r.workStatus==='half') s.half++;
+    else s.off++;
+    s.transport+=trans; s.remote+=remote; s.workMin+=workMinutes(r);
+    s.totalWage+=earned; s.totalPayment+=earned+trans+remote;
+    if(r.workStatus!=='off'){
+      const sk=r.siteName||'（現場名なし）';
+      const g=s.sites[sk]||(s.sites[sk]={days:0,transport:0,remote:0,workMin:0});
+      g.days+=dv; g.transport+=trans; g.remote+=remote; g.workMin+=workMinutes(r);
+    }
+    const ek=r.employeeName||'従業員';
+    const e=s.byEmployee[ek]||(s.byEmployee[ek]={days:0,wage:0,transport:0,remote:0,payment:0});
+    e.days+=dv; e.wage+=earned; e.transport+=trans; e.remote+=remote; e.payment+=earned+trans+remote;
+  });
+  return s;
+}
+
+function bossSummaryHtml(s){
+  const empRows=Object.keys(s.byEmployee).map(name=>{
+    const e=s.byEmployee[name];
+    return `<tr><td class="l">${escapeHtml(name)}</td><td>${e.days}日</td>
+      <td>${yen(e.wage)}</td><td>${yen(e.transport)}</td><td>${yen(e.remote)}</td>
+      <td><strong>${yen(e.payment)}</strong></td></tr>`;
+  }).join('')||`<tr><td colspan="6" class="l">出勤記録なし</td></tr>`;
+  const siteRows=Object.keys(s.sites).map(name=>{
+    const g=s.sites[name];
+    return `<tr><td class="l">${escapeHtml(name)}</td><td>${g.days}日</td>
+      <td>${fmtMin(g.workMin)}</td><td>${yen(g.transport)}</td><td>${yen(g.remote)}</td></tr>`;
+  }).join('')||`<tr><td colspan="5" class="l">出勤記録なし</td></tr>`;
+  return `
+    <div class="stat" style="margin-top:14px">
+      <div class="box"><div class="v">${s.days}</div><div class="l">出勤日数合計</div></div>
+      <div class="box"><div class="v">${fmtMin(s.workMin)}</div><div class="l">実働時間合計</div></div>
+      <div class="box"><div class="v">${yen(s.transport)}</div><div class="l">交通費合計</div></div>
+      <div class="box"><div class="v">${yen(s.remote)}</div><div class="l">遠方経費合計</div></div>
+      <div class="box"><div class="v">${yen(s.totalWage)}</div><div class="l">日当合計</div></div>
+      <div class="box"><div class="v">${yen(s.totalPayment)}</div><div class="l">支給合計</div></div>
+    </div>
+    <div class="hint" style="margin-top:8px">内訳：出勤${s.present}日・半日${s.half}回・休み${s.off}日</div>
+    <div class="card">
+      <h3>従業員別支給</h3>
+      <div class="scroll"><table>
+        <thead><tr><th class="l">従業員名</th><th>日数</th><th>日当計</th><th>交通費</th><th>遠方</th><th>支給合計</th></tr></thead>
+        <tbody>${empRows}</tbody>
+      </table></div>
+    </div>
+    <div class="card">
+      <h3>現場別一覧</h3>
+      <div class="scroll"><table>
+        <thead><tr><th class="l">現場名</th><th>日数</th><th>実働</th><th>交通費</th><th>遠方</th></tr></thead>
+        <tbody>${siteRows}</tbody>
+      </table></div>
+    </div>`;
+}
+
 /* ---------- 社長確認画面 ---------- */
 async function viewBoss(app){
   app.innerHTML = header('社長確認画面', true) + `
     <div class="wrap">
+      <button class="btn ghost sm" id="empMgmtBtn" style="margin-bottom:12px">👥 従業員管理</button>
       <div class="monthsel"><select id="monthSel"></select></div>
       <div id="bossBody"></div>
     </div>`;
+  $('#empMgmtBtn').onclick = () => go('/employees');
   $('#monthSel').innerHTML = await monthOptionsHtml();
   $('#monthSel').onchange=(e)=>{ selectedMonth=e.target.value; drawBoss(); };
   await drawBoss();
@@ -720,35 +833,133 @@ async function viewBoss(app){
     const body=$('#bossBody');
     if(!recs.length){ body.innerHTML=`<div class="empty">この月の記録はまだありません。</div>`; return; }
 
-    // 従業員ごとに集計（将来の複数人対応を見据えてグループ化）
-    const byEmp={};
-    recs.forEach(r=>{ (byEmp[r.employeeName||'従業員']??(byEmp[r.employeeName||'従業員']=[])).push(r); });
+    const emps = await Store.getEmployees();
+    const empWageMap = Object.fromEntries(emps.map(e => [e.name, Number(e.dailyWage)||0]));
+    const s = summarizeBoss(recs, empWageMap);
 
-    let html = summaryHtml(summarize(recs));
+    let html = bossSummaryHtml(s);
     html += `<button class="btn" id="csvBtn" style="margin-top:18px">📄 CSV出力（この月）</button>`;
 
-    // 従業員別の明細表
+    const byEmp={};
+    recs.forEach(r=>{ const k=r.employeeName||'従業員'; (byEmp[k]=byEmp[k]||[]).push(r); });
+
     Object.keys(byEmp).forEach(emp=>{
       const list=byEmp[emp].slice().sort((a,b)=> a.date<b.date?-1:1);
-      const rows=list.map(r=>`<tr>
-        <td>${fmtDate(r.date)}</td>
-        <td class="l">${escapeHtml(r.siteName||'-')}</td>
-        <td>${STATUS_LABEL[r.workStatus]}</td>
-        <td>${r.startTime||'-'}〜${r.endTime||'-'}</td>
-        <td>${fmtMin(workMinutes(r))}</td>
-        <td>${yen(r.transportCost)}</td>
-        <td>${yen(r.remoteCost)}</td>
-      </tr>`).join('');
-      html += `<div class="card"><h3>明細：${escapeHtml(emp)}</h3>
+      const empWage = empWageMap[emp]||0;
+      const eSum = s.byEmployee[emp]||{wage:0,transport:0,remote:0,payment:0};
+      const rows=list.map(r=>{
+        const earned=empWage*dayValue(r.workStatus);
+        const payment=earned+(Number(r.transportCost)||0)+(Number(r.remoteCost)||0);
+        return `<tr>
+          <td>${fmtDate(r.date)}</td>
+          <td class="l">${escapeHtml(r.siteName||'-')}</td>
+          <td>${STATUS_LABEL[r.workStatus]}</td>
+          <td>${r.startTime||'-'}〜${r.endTime||'-'}</td>
+          <td>${fmtMin(workMinutes(r))}</td>
+          <td>${yen(earned)}</td>
+          <td>${yen(r.transportCost)}</td>
+          <td>${yen(r.remoteCost)}</td>
+          <td><strong>${yen(payment)}</strong></td>
+        </tr>`;
+      }).join('');
+      html += `<div class="card">
+        <h3>明細：${escapeHtml(emp)}（日当 ${yen(empWage)}）</h3>
         <div class="scroll"><table>
-          <thead><tr><th>日付</th><th class="l">現場</th><th>区分</th><th>時間</th><th>実働</th><th>交通費</th><th>遠方</th></tr></thead>
+          <thead><tr><th>日付</th><th class="l">現場</th><th>区分</th><th>時間</th><th>実働</th><th>日当</th><th>交通費</th><th>遠方</th><th>支給合計</th></tr></thead>
           <tbody>${rows}</tbody>
-        </table></div></div>`;
+          <tfoot><tr>
+            <td colspan="5" class="l" style="font-weight:700">合計</td>
+            <td style="font-weight:700">${yen(eSum.wage)}</td>
+            <td style="font-weight:700">${yen(eSum.transport)}</td>
+            <td style="font-weight:700">${yen(eSum.remote)}</td>
+            <td style="font-weight:700">${yen(eSum.payment)}</td>
+          </tr></tfoot>
+        </table></div>
+      </div>`;
     });
 
     body.innerHTML = html;
-    $('#csvBtn').onclick=()=> exportCsv(recs, selectedMonth);
+    $('#csvBtn').onclick=()=> exportCsv(recs, selectedMonth, empWageMap);
   }
+}
+
+/* ---------- 従業員管理 ---------- */
+async function viewEmployees(app){
+  app.innerHTML = header('従業員管理', true) + `
+    <div class="wrap">
+      <div class="card" id="empForm">
+        <h3 id="formTitle">従業員を追加</h3>
+        <label>従業員名</label>
+        <input id="e_name" type="text" placeholder="例：山田 太郎">
+        <label>日当（円）</label>
+        <input id="e_wage" type="number" inputmode="numeric" min="0" placeholder="例：15000">
+        <input type="hidden" id="e_id" value="">
+        <button class="btn" id="saveEmpBtn" style="margin-top:12px">追加する</button>
+        <button class="btn ghost" id="cancelEmpBtn" style="display:none;margin-top:8px">キャンセル</button>
+      </div>
+      <div id="empList" style="margin-top:4px"></div>
+    </div>`;
+
+  let editMode = false;
+
+  async function drawEmpList(){
+    const emps = await Store.getEmployees();
+    const list = $('#empList');
+    if(!emps.length){
+      list.innerHTML = '<div class="empty">まだ登録されていません。<br>上のフォームから追加してください。</div>';
+      return;
+    }
+    list.innerHTML = emps.map(e=>`
+      <div class="card" style="display:flex;align-items:center;gap:10px;margin-top:10px">
+        <div style="flex:1">
+          <div style="font-size:17px;font-weight:700">${escapeHtml(e.name)}</div>
+          <div style="font-size:14px;color:var(--muted)">日当 ${yen(e.dailyWage||0)}</div>
+        </div>
+        <button class="btn ghost sm" style="width:auto" data-id="${e.id}" data-name="${escapeHtml(e.name)}" data-wage="${Number(e.dailyWage)||0}" data-action="edit">編集</button>
+        <button class="btn danger sm" style="width:auto;font-size:15px" data-id="${e.id}" data-action="del">削除</button>
+      </div>`).join('');
+
+    list.querySelectorAll('[data-action="edit"]').forEach(btn=>btn.onclick=()=>{
+      $('#e_id').value = btn.dataset.id;
+      $('#e_name').value = btn.dataset.name;
+      $('#e_wage').value = btn.dataset.wage;
+      $('#formTitle').textContent = '従業員を編集';
+      $('#saveEmpBtn').textContent = '更新する';
+      $('#cancelEmpBtn').style.display = '';
+      editMode = true;
+      window.scrollTo(0,0);
+    });
+    list.querySelectorAll('[data-action="del"]').forEach(btn=>btn.onclick=async ()=>{
+      if(!confirm('この従業員を削除しますか？')) return;
+      await Store.removeEmployee(btn.dataset.id);
+      toast('削除しました');
+      await drawEmpList();
+    });
+  }
+
+  function resetForm(){
+    $('#e_id').value = '';
+    $('#e_name').value = '';
+    $('#e_wage').value = '';
+    $('#formTitle').textContent = '従業員を追加';
+    $('#saveEmpBtn').textContent = '追加する';
+    $('#cancelEmpBtn').style.display = 'none';
+    editMode = false;
+  }
+
+  $('#saveEmpBtn').onclick = async ()=>{
+    const name = $('#e_name').value.trim();
+    if(!name){ toast('従業員名を入力してください'); return; }
+    const wage = Number($('#e_wage').value)||0;
+    const id = $('#e_id').value || undefined;
+    await Store.saveEmployee({ id, name, dailyWage: wage });
+    toast(editMode ? '更新しました' : '追加しました');
+    resetForm();
+    await drawEmpList();
+  };
+  $('#cancelEmpBtn').onclick = ()=>{ resetForm(); };
+
+  await drawEmpList();
 }
 
 /* ---------- CSV出力 ---------- */
@@ -756,14 +967,16 @@ function csvCell(v){
   const s=String(v==null?'':v);
   return /[",\n]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s;
 }
-function exportCsv(recs, ym){
-  const header=['日付','従業員名','現場名','開始時間','終了時間','休憩(分)','実働時間','出勤区分','交通費','遠方経費','メモ','登録日時','修正日時'];
+function exportCsv(recs, ym, empWageMap={}){
+  const header=['日付','従業員名','現場名','開始時間','終了時間','休憩(分)','実働時間','出勤区分','日当','交通費','遠方経費','支給合計','メモ','登録日時','修正日時'];
   const lines=[header.join(',')];
   recs.slice().sort((a,b)=> a.date<b.date?-1:1).forEach(r=>{
+    const earned=(empWageMap[r.employeeName]||0)*dayValue(r.workStatus);
+    const payment=earned+(Number(r.transportCost)||0)+(Number(r.remoteCost)||0);
     lines.push([
       r.date, r.employeeName, r.siteName, r.startTime, r.endTime,
       r.breakMinutes, fmtMin(workMinutes(r)), STATUS_LABEL[r.workStatus],
-      r.transportCost, r.remoteCost, r.memo,
+      earned, r.transportCost, r.remoteCost, payment, r.memo,
       fmtDateTime(r.createdAt), fmtDateTime(r.updatedAt)
     ].map(csvCell).join(','));
   });
