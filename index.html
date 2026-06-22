@@ -361,6 +361,8 @@ async function render(){
 }
 
 /* ---------- ホーム ---------- */
+const BOSS_PIN = '1234'; // 暗証番号はここだけ変更すればよい
+
 async function viewHome(app){
   const name=await Store.getSetting('employeeName','');
   app.innerHTML = header('高橋商店 勤怠管理', false) + `
@@ -372,20 +374,30 @@ async function viewHome(app){
         </div>
         <div class="tile" data-go="/list"><span class="ic">📋</span>月別一覧</div>
         <div class="tile" data-go="/summary"><span class="ic">📊</span>月別集計</div>
-        <div class="tile" data-go="/boss" style="grid-column:1 / -1"><span class="ic">👤</span>社長確認画面<small>全記録の確認・CSV出力</small></div>
       </div>
       <div class="card">
         <h3>従業員名（この端末の既定）</h3>
         <input id="empName" type="text" placeholder="例：高橋 太郎" value="${escapeHtml(name)}">
         <div class="hint">入力画面で自動的に使われます。あとから変更できます。</div>
       </div>
+      <button class="btn ghost" id="bossBtn" style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;font-size:18px;margin-top:14px">
+        <span>👤 社長確認画面</span><span style="font-size:20px;opacity:.5">›</span>
+      </button>
       <p class="footnote">最小機能版 v1 ・ データはこの端末に保存されます</p>
     </div>`;
   app.querySelectorAll('[data-go]').forEach(el=> el.onclick=()=>go(el.dataset.go));
   const emp=$('#empName');
   emp.onchange=()=> Store.setSetting('employeeName', emp.value.trim());
+  $('#bossBtn').onclick=()=> showPinPrompt();
 }
 function todayStrLabel(){ return fmtDate(todayStr()); }
+
+function showPinPrompt(){
+  const pin = prompt('暗証番号を入力してください（4桁）');
+  if(pin === null) return; // キャンセル
+  if(pin === BOSS_PIN){ go('/boss'); }
+  else { toast('暗証番号が違います'); }
+}
 
 /* ---------- 勤怠入力 ---------- */
 async function viewEntry(app){
