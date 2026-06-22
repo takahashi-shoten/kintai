@@ -930,7 +930,17 @@ async function viewBoss(app){
     const s = summarizeBoss(recs, empWageMap);
 
     let html = bossSummaryHtml(s);
-    html += `<button class="btn" id="csvBtn" style="margin-top:18px">📄 CSV出力（この月）</button>`;
+    html += `
+      <div style="margin-top:18px">
+        <button class="btn" id="csvBtn">📄 CSV出力（この月）</button>
+      </div>
+      <div style="margin-top:10px;display:flex;gap:8px;align-items:stretch">
+        <select id="yayoiAccSel" style="flex:1;font-size:16px">
+          <option value="旅費交通費">交通費・遠方 → 旅費交通費</option>
+          <option value="外注費">交通費・遠方 → 外注費</option>
+        </select>
+        <button class="btn ghost" id="yayoiBtn" style="width:auto;white-space:nowrap;margin-top:0;padding:14px 16px;font-size:17px">🏦 弥生CSV</button>
+      </div>`;
 
     const byEmp={};
     recs.forEach(r=>{ const k=r.employeeName||'従業員'; (byEmp[k]=byEmp[k]||[]).push(r); });
@@ -978,6 +988,7 @@ async function viewBoss(app){
 
     body.innerHTML = html;
     $('#csvBtn').onclick=()=> exportCsv(recs, selectedMonth, empWageMap);
+    $('#yayoiBtn').onclick=()=> exportYayoiCsv(recs, selectedMonth, empWageMap, $('#yayoiAccSel').value);
   }
 }
 
@@ -1156,6 +1167,51 @@ function exportCsv(recs, ym, empWageMap={}){
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(()=>URL.revokeObjectURL(url), 2000);
   toast('CSVを書き出しました');
+}
+
+/* ---------- 弥生青色申告用 仕訳CSV出力 ---------- */
+function exportYayoiCsv(recs, ym, empWageMap={}, expenseAccount='旅費交通費'){
+  const [y, m] = ym.split('-').map(Number);
+  const lastDay = new Date(y, m, 0).getDate();
+  const dateStr = `${y}/${pad2(m)}/${pad2(lastDay)}`;
+  const ymLabel = `${y}年${pad2(m)}月分`;
+
+  // 従業員別に給与（基本日当＋残業代）・交通費・遠方経費を集計
+  const byEmp = {};
+  recs.forEach(r => {
+    const name = r.employeeName || '従業員';
+    const wage = empWageMap[r.employeeName] || 0;
+    const earned = wage * dayValue(r.workStatus);
+    const otHours = Number(r.overtimeHours) || 0;
+    const otPay = Math.floor(otHours * (wage / 8 * 1.25));
+    const trans = Number(r.transportCost) || 0;
+    const remote = Number(r.remoteCost) || 0;
+    if(!byEmp[name]) byEmp[name] = {salary:0, transport:0, remote:0};
+    byEmp[name].salary += earned + otPay;
+    byEmp[name].transport += trans;
+    byEmp[name].remote += remote;
+  });
+
+  const hdr = ['日付','摘要','借方勘定科目','借方金額','貸方勘定科目','貸方金額'];
+  const lines = [hdr.join(',')];
+
+  Object.keys(byEmp).sort().forEach(name => {
+    const e = byEmp[name];
+    if(e.salary > 0)
+      lines.push([dateStr, `${ymLabel} 給与 ${name}`, '給料手当', e.salary, '現金', e.salary].map(csvCell).join(','));
+    if(e.transport > 0)
+      lines.push([dateStr, `${ymLabel} 交通費 ${name}`, expenseAccount, e.transport, '現金', e.transport].map(csvCell).join(','));
+    if(e.remote > 0)
+      lines.push([dateStr, `${ymLabel} 遠方経費 ${name}`, expenseAccount, e.remote, '現金', e.remote].map(csvCell).join(','));
+  });
+
+  const blob = new Blob(['﻿' + lines.join('\r\n')], {type:'text/csv;charset=utf-8'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href=url; a.download='弥生仕訳_'+ym+'.csv';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url), 2000);
+  toast('弥生CSVを書き出しました');
 }
 
 /* ---------- 起動 ---------- */
