@@ -808,26 +808,32 @@ function summaryHtml(s){
 /* ---------- 社長用集計（日当含む） ---------- */
 function summarizeBoss(recs, empWageMap){
   const s={days:0,present:0,half:0,off:0,transport:0,remote:0,workMin:0,sites:{},
-           totalWage:0,totalPayment:0,byEmployee:{}};
+           totalWage:0,totalPayment:0,totalOvertimeHours:0,totalOvertimePay:0,byEmployee:{}};
   recs.forEach(r=>{
     const dv=dayValue(r.workStatus);
-    const earned=(empWageMap[r.employeeName]||0)*dv;
+    const dailyWage=empWageMap[r.employeeName]||0;
+    const earned=dailyWage*dv;
     const trans=Number(r.transportCost)||0;
     const remote=Number(r.remoteCost)||0;
+    const otHours=Number(r.overtimeHours)||0;
+    const otPay=otHours*(dailyWage/8*1.25);
     s.days+=dv;
     if(r.workStatus==='present') s.present++;
     else if(r.workStatus==='half') s.half++;
     else s.off++;
     s.transport+=trans; s.remote+=remote; s.workMin+=workMinutes(r);
-    s.totalWage+=earned; s.totalPayment+=earned+trans+remote;
+    s.totalWage+=earned; s.totalOvertimeHours+=otHours; s.totalOvertimePay+=otPay;
+    s.totalPayment+=earned+trans+remote+otPay;
     if(r.workStatus!=='off'){
       const sk=r.siteName||'（現場名なし）';
       const g=s.sites[sk]||(s.sites[sk]={days:0,transport:0,remote:0,workMin:0});
       g.days+=dv; g.transport+=trans; g.remote+=remote; g.workMin+=workMinutes(r);
     }
     const ek=r.employeeName||'従業員';
-    const e=s.byEmployee[ek]||(s.byEmployee[ek]={days:0,wage:0,transport:0,remote:0,payment:0});
-    e.days+=dv; e.wage+=earned; e.transport+=trans; e.remote+=remote; e.payment+=earned+trans+remote;
+    const e=s.byEmployee[ek]||(s.byEmployee[ek]={days:0,wage:0,transport:0,remote:0,overtimeHours:0,overtimePay:0,payment:0});
+    e.days+=dv; e.wage+=earned; e.transport+=trans; e.remote+=remote;
+    e.overtimeHours+=otHours; e.overtimePay+=otPay;
+    e.payment+=earned+trans+remote+otPay;
   });
   return s;
 }
@@ -837,8 +843,9 @@ function bossSummaryHtml(s){
     const e=s.byEmployee[name];
     return `<tr><td class="l">${escapeHtml(name)}</td><td>${e.days}日</td>
       <td>${yen(e.wage)}</td><td>${yen(e.transport)}</td><td>${yen(e.remote)}</td>
+      <td>${e.overtimeHours}h</td><td>${yen(e.overtimePay)}</td>
       <td><strong>${yen(e.payment)}</strong></td></tr>`;
-  }).join('')||`<tr><td colspan="6" class="l">出勤記録なし</td></tr>`;
+  }).join('')||`<tr><td colspan="8" class="l">出勤記録なし</td></tr>`;
   const siteRows=Object.keys(s.sites).map(name=>{
     const g=s.sites[name];
     return `<tr><td class="l">${escapeHtml(name)}</td><td>${g.days}日</td>
@@ -851,13 +858,15 @@ function bossSummaryHtml(s){
       <div class="box"><div class="v">${yen(s.transport)}</div><div class="l">交通費合計</div></div>
       <div class="box"><div class="v">${yen(s.remote)}</div><div class="l">遠方経費合計</div></div>
       <div class="box"><div class="v">${yen(s.totalWage)}</div><div class="l">日当合計</div></div>
+      <div class="box"><div class="v">${s.totalOvertimeHours}h</div><div class="l">残業時間合計</div></div>
+      <div class="box"><div class="v">${yen(s.totalOvertimePay)}</div><div class="l">残業代合計</div></div>
       <div class="box"><div class="v">${yen(s.totalPayment)}</div><div class="l">支給合計</div></div>
     </div>
     <div class="hint" style="margin-top:8px">内訳：出勤${s.present}日・半日${s.half}回・休み${s.off}日</div>
     <div class="card">
       <h3>従業員別支給</h3>
       <div class="scroll"><table>
-        <thead><tr><th class="l">従業員名</th><th>日数</th><th>日当計</th><th>交通費</th><th>遠方</th><th>支給合計</th></tr></thead>
+        <thead><tr><th class="l">従業員名</th><th>日数</th><th>日当計</th><th>交通費</th><th>遠方</th><th>残業時間</th><th>残業代</th><th>支給合計</th></tr></thead>
         <tbody>${empRows}</tbody>
       </table></div>
     </div>
@@ -901,10 +910,12 @@ async function viewBoss(app){
     Object.keys(byEmp).forEach(emp=>{
       const list=byEmp[emp].slice().sort((a,b)=> a.date<b.date?-1:1);
       const empWage = empWageMap[emp]||0;
-      const eSum = s.byEmployee[emp]||{wage:0,transport:0,remote:0,payment:0};
+      const eSum = s.byEmployee[emp]||{wage:0,transport:0,remote:0,overtimeHours:0,overtimePay:0,payment:0};
       const rows=list.map(r=>{
         const earned=empWage*dayValue(r.workStatus);
-        const payment=earned+(Number(r.transportCost)||0)+(Number(r.remoteCost)||0);
+        const otHours=Number(r.overtimeHours)||0;
+        const otPay=otHours*(empWage/8*1.25);
+        const payment=earned+(Number(r.transportCost)||0)+(Number(r.remoteCost)||0)+otPay;
         return `<tr>
           <td>${fmtDate(r.date)}</td>
           <td class="l">${escapeHtml(r.siteName||'-')}</td>
@@ -914,19 +925,23 @@ async function viewBoss(app){
           <td>${yen(earned)}</td>
           <td>${yen(r.transportCost)}</td>
           <td>${yen(r.remoteCost)}</td>
+          <td>${otHours?otHours+'h':'-'}</td>
+          <td>${otHours?yen(otPay):'-'}</td>
           <td><strong>${yen(payment)}</strong></td>
         </tr>`;
       }).join('');
       html += `<div class="card">
         <h3>明細：${escapeHtml(emp)}（日当 ${yen(empWage)}）</h3>
         <div class="scroll"><table>
-          <thead><tr><th>日付</th><th class="l">現場</th><th>区分</th><th>時間</th><th>実働</th><th>日当</th><th>交通費</th><th>遠方</th><th>支給合計</th></tr></thead>
+          <thead><tr><th>日付</th><th class="l">現場</th><th>区分</th><th>時間</th><th>実働</th><th>日当</th><th>交通費</th><th>遠方</th><th>残業時間</th><th>残業代</th><th>支給合計</th></tr></thead>
           <tbody>${rows}</tbody>
           <tfoot><tr>
             <td colspan="5" class="l" style="font-weight:700">合計</td>
             <td style="font-weight:700">${yen(eSum.wage)}</td>
             <td style="font-weight:700">${yen(eSum.transport)}</td>
             <td style="font-weight:700">${yen(eSum.remote)}</td>
+            <td style="font-weight:700">${eSum.overtimeHours}h</td>
+            <td style="font-weight:700">${yen(eSum.overtimePay)}</td>
             <td style="font-weight:700">${yen(eSum.payment)}</td>
           </tr></tfoot>
         </table></div>
