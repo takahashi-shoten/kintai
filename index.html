@@ -477,7 +477,7 @@ async function viewEntry(app){
         </div>
         <div class="row2">
           <div><label>残業（時間）</label><input id="f_ot" type="number" inputmode="decimal" min="0" step="0.5" value="${rec.overtimeHours!=null?rec.overtimeHours:calcOvertime(rec.endTime)}"></div>
-          <div></div>
+          <div><label>残業金額（円）</label><input id="f_otpay" type="text" readonly value=""></div>
         </div>
         <div class="row2">
           <div><label>交通費（円）</label><input id="f_trans" type="number" inputmode="numeric" min="0" value="${Number(rec.transportCost)||0}"></div>
@@ -523,7 +523,21 @@ async function viewEntry(app){
         empInp.value = empSel.value;
         empInp.style.display = 'none';
       }
+      recalcOtPay();
     };
+    empInp.addEventListener('input', recalcOtPay);
+  }
+
+  function getEmpWage(){
+    const name = (empSel.style.display !== 'none' && empSel.value && empSel.value !== '__manual__')
+      ? empSel.value : empInp.value.trim();
+    const emp = emps.find(e => e.name === name);
+    return emp ? Number(emp.dailyWage) || 0 : 0;
+  }
+  function recalcOtPay(){
+    const otHours = Number($('#f_ot').value) || 0;
+    const pay = Math.floor(otHours * (getEmpWage() / 8 * 1.25));
+    $('#f_otpay').value = pay.toLocaleString('ja-JP');
   }
 
   function recalcWork(){
@@ -534,8 +548,11 @@ async function viewEntry(app){
   $('#f_end').addEventListener('input', ()=>{
     recalcWork();
     $('#f_ot').value = calcOvertime($('#f_end').value);
+    recalcOtPay();
   });
+  $('#f_ot').addEventListener('input', recalcOtPay);
   paintSeg();
+  recalcOtPay();
 
   // 解析処理（「解析」ボタン・入力欄のフォーカスアウト・音声認識終了から呼ぶ）
   let lastParsedText='';
@@ -546,7 +563,7 @@ async function viewEntry(app){
     const p=parseVoiceInput(txt);
     if(p.siteName) $('#f_site').value=p.siteName;
     if(p.startTime) $('#f_start').value=p.startTime;
-    if(p.endTime){ $('#f_end').value=p.endTime; $('#f_ot').value=calcOvertime(p.endTime); }
+    if(p.endTime){ $('#f_end').value=p.endTime; $('#f_ot').value=calcOvertime(p.endTime); recalcOtPay(); }
     $('#f_break').value=p.breakMinutes;
     $('#f_trans').value=p.transportCost;
     $('#f_remote').value=p.remoteCost;
@@ -816,7 +833,7 @@ function summarizeBoss(recs, empWageMap){
     const trans=Number(r.transportCost)||0;
     const remote=Number(r.remoteCost)||0;
     const otHours=Number(r.overtimeHours)||0;
-    const otPay=otHours*(dailyWage/8*1.25);
+    const otPay=Math.floor(otHours*(dailyWage/8*1.25));
     s.days+=dv;
     if(r.workStatus==='present') s.present++;
     else if(r.workStatus==='half') s.half++;
@@ -914,7 +931,7 @@ async function viewBoss(app){
       const rows=list.map(r=>{
         const earned=empWage*dayValue(r.workStatus);
         const otHours=Number(r.overtimeHours)||0;
-        const otPay=otHours*(empWage/8*1.25);
+        const otPay=Math.floor(otHours*(empWage/8*1.25));
         const payment=earned+(Number(r.transportCost)||0)+(Number(r.remoteCost)||0)+otPay;
         return `<tr>
           <td>${fmtDate(r.date)}</td>
