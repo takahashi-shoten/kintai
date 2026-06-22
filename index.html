@@ -332,7 +332,8 @@ const Store = {
   async getEmployeeWage(name){
     const e=this._readEmps().find(e=>e.name===name);
     return e ? (Number(e.dailyWage)||0) : 0;
-  }
+  },
+  async clearAllRecords(){ this._write([]); }
 };
 
 /* =====================================================================
@@ -364,14 +365,26 @@ async function render(){
   else if(route==='/list')  await viewList(app);
   else if(route==='/summary') await viewSummary(app);
   else if(route==='/boss')  await viewBoss(app);
+  else if(route==='/admin') await viewAdmin(app);
   else if(route==='/employees') await viewEmployees(app);
   else                      await viewHome(app);
   const back=$('#backBtn'); if(back) back.onclick=()=>go('/');
   window.scrollTo(0,0);
 }
 
+/* ---------- 暗証番号ヘルパー ---------- */
+async function checkPin(settingKey, promptMsg){
+  const pin = await Store.getSetting(settingKey, '');
+  if(!pin) return true; // 未設定なら無条件で通す
+  const entered = prompt(promptMsg);
+  if(entered === null) return false;
+  if(entered === pin) return true;
+  toast('暗証番号が違います');
+  return false;
+}
+
 /* ---------- ホーム ---------- */
-const BOSS_PIN = '1234'; // 暗証番号はここだけ変更すればよい
+function todayStrLabel(){ return fmtDate(todayStr()); }
 
 async function viewHome(app){
   const name=await Store.getSetting('employeeName','');
@@ -401,31 +414,30 @@ async function viewHome(app){
       <button class="btn ghost" id="bossBtn" style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;font-size:18px;margin-top:14px">
         <span>👤 社長確認画面</span><span style="font-size:20px;opacity:.5">›</span>
       </button>
-      <p class="footnote">最小機能版 v1 ・ データはこの端末に保存されます</p>
+      <button class="btn ghost" id="adminBtn" style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;font-size:18px;margin-top:10px;color:var(--muted);border-color:var(--muted)">
+        <span>🔧 管理者画面</span><span style="font-size:20px;opacity:.5">›</span>
+      </button>
+      <p class="footnote">v2 ・ データはこの端末に保存されます</p>
     </div>`;
   app.querySelectorAll('[data-go]').forEach(el=> el.onclick=()=>go(el.dataset.go));
   if(name){
-    $('#changeNameBtn').onclick = () => {
-      const pin = prompt('管理者暗証番号を入力してください');
-      if(pin === null) return;
-      if(pin !== BOSS_PIN){ toast('暗証番号が違います'); return; }
+    $('#changeNameBtn').onclick = async () => {
+      if(!await checkPin('adminPin', '管理者暗証番号を入力してください')) return;
       const newName = prompt('新しい従業員名を入力してください', name);
       if(newName === null || !newName.trim()) return;
-      Store.setSetting('employeeName', newName.trim()).then(() => render());
+      await Store.setSetting('employeeName', newName.trim());
+      render();
     };
   } else {
     const emp=$('#empName');
     emp.onchange=()=> Store.setSetting('employeeName', emp.value.trim());
   }
-  $('#bossBtn').onclick=()=> showPinPrompt();
-}
-function todayStrLabel(){ return fmtDate(todayStr()); }
-
-function showPinPrompt(){
-  const pin = prompt('暗証番号を入力してください（4桁）');
-  if(pin === null) return; // キャンセル
-  if(pin === BOSS_PIN){ go('/boss'); }
-  else { toast('暗証番号が違います'); }
+  $('#bossBtn').onclick = async ()=>{
+    if(await checkPin('bossPin', '社長確認画面の暗証番号を入力してください')) go('/boss');
+  };
+  $('#adminBtn').onclick = async ()=>{
+    if(await checkPin('adminPin', '管理者暗証番号を入力してください')) go('/admin');
+  };
 }
 
 /* ---------- 勤怠入力 ---------- */
@@ -898,13 +910,12 @@ function bossSummaryHtml(s){
 
 /* ---------- 社長確認画面 ---------- */
 async function viewBoss(app){
+  if(!await checkPin('bossPin', '社長確認画面の暗証番号を入力してください')){ go('/'); return; }
   app.innerHTML = header('社長確認画面', true) + `
     <div class="wrap">
-      <button class="btn ghost sm" id="empMgmtBtn" style="margin-bottom:12px">👥 従業員管理</button>
       <div class="monthsel"><select id="monthSel"></select></div>
       <div id="bossBody"></div>
     </div>`;
-  $('#empMgmtBtn').onclick = () => go('/employees');
   $('#monthSel').innerHTML = await monthOptionsHtml();
   $('#monthSel').onchange=(e)=>{ selectedMonth=e.target.value; drawBoss(); };
   await drawBoss();
@@ -972,6 +983,7 @@ async function viewBoss(app){
 
 /* ---------- 従業員管理 ---------- */
 async function viewEmployees(app){
+  if(!await checkPin('adminPin', '管理者暗証番号を入力してください')){ go('/'); return; }
   app.innerHTML = header('従業員管理', true) + `
     <div class="wrap">
       <div class="card" id="empForm">
@@ -1047,6 +1059,75 @@ async function viewEmployees(app){
   $('#cancelEmpBtn').onclick = ()=>{ resetForm(); };
 
   await drawEmpList();
+}
+
+/* ---------- 管理者画面 ---------- */
+async function viewAdmin(app){
+  if(!await checkPin('adminPin', '管理者暗証番号を入力してください')){ go('/'); return; }
+  app.innerHTML = header('管理者画面', true) + `
+    <div class="wrap">
+      <button class="btn" id="empMgmtBtn" style="margin-bottom:4px">👥 従業員管理・日当設定</button>
+
+      <div class="card" style="margin-top:20px">
+        <h3>管理者暗証番号の変更</h3>
+        <p class="hint" style="margin-bottom:6px">未設定のままにすると暗証番号なしで入れます</p>
+        <input id="a_pin_new" type="text" inputmode="numeric" placeholder="新しい暗証番号（4桁）" maxlength="4" autocomplete="off">
+        <input id="a_pin_cfm" type="text" inputmode="numeric" placeholder="確認（もう一度入力）" maxlength="4" autocomplete="off" style="margin-top:8px">
+        <button class="btn ghost sm" id="saveAdminPinBtn" style="margin-top:10px">管理者PINを変更する</button>
+      </div>
+
+      <div class="card" style="margin-top:14px">
+        <h3>社長確認画面 暗証番号の変更</h3>
+        <p class="hint" style="margin-bottom:6px">未設定のままにすると暗証番号なしで入れます</p>
+        <input id="b_pin_new" type="text" inputmode="numeric" placeholder="新しい暗証番号（4桁）" maxlength="4" autocomplete="off">
+        <input id="b_pin_cfm" type="text" inputmode="numeric" placeholder="確認（もう一度入力）" maxlength="4" autocomplete="off" style="margin-top:8px">
+        <button class="btn ghost sm" id="saveBossPinBtn" style="margin-top:10px">社長PINを変更する</button>
+      </div>
+
+      <div class="card" style="margin-top:20px;border:2px solid var(--danger)">
+        <h3 style="color:var(--danger)">⚠️ テストデータ全削除</h3>
+        <p class="hint" style="margin-top:6px">勤怠記録のみ削除します。従業員名・日当・暗証番号は削除されません。</p>
+        <button class="btn danger" id="backupDeleteBtn" style="margin-top:14px">📄 CSVバックアップして全削除</button>
+      </div>
+    </div>`;
+
+  $('#empMgmtBtn').onclick = ()=> go('/employees');
+
+  $('#saveAdminPinBtn').onclick = async ()=>{
+    const np = $('#a_pin_new').value.trim();
+    const cp = $('#a_pin_cfm').value.trim();
+    if(!np){ toast('新しいPINを入力してください'); return; }
+    if(np !== cp){ toast('PINが一致しません。もう一度入力してください'); return; }
+    await Store.setSetting('adminPin', np);
+    toast('管理者PINを変更しました');
+    $('#a_pin_new').value = ''; $('#a_pin_cfm').value = '';
+  };
+
+  $('#saveBossPinBtn').onclick = async ()=>{
+    const np = $('#b_pin_new').value.trim();
+    const cp = $('#b_pin_cfm').value.trim();
+    if(!np){ toast('新しいPINを入力してください'); return; }
+    if(np !== cp){ toast('PINが一致しません。もう一度入力してください'); return; }
+    await Store.setSetting('bossPin', np);
+    toast('社長PINを変更しました');
+    $('#b_pin_new').value = ''; $('#b_pin_cfm').value = '';
+  };
+
+  $('#backupDeleteBtn').onclick = async ()=>{
+    const allRecs = await Store.getAll();
+    if(!allRecs.length){ toast('削除する勤怠データはありません'); return; }
+    // 1. CSVバックアップを先に出力
+    const emps = await Store.getEmployees();
+    const empWageMap = Object.fromEntries(emps.map(e => [e.name, Number(e.dailyWage)||0]));
+    exportCsv(allRecs, '全期間バックアップ', empWageMap);
+    // 2. 1回目の確認
+    await new Promise(r => setTimeout(r, 600));
+    if(!confirm('CSVバックアップは保存しましたか？\n保存済みであれば「OK」を押してください。')) return;
+    // 3. 2回目の確認
+    if(!confirm('本当に全ての勤怠データを削除しますか？\nこの操作は取り消せません。')) return;
+    await Store.clearAllRecords();
+    toast('全ての勤怠データを削除しました');
+  };
 }
 
 /* ---------- CSV出力 ---------- */
