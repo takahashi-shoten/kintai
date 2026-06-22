@@ -927,6 +927,7 @@ async function viewBoss(app){
 
     const emps = await Store.getEmployees();
     const empWageMap = Object.fromEntries(emps.map(e => [e.name, Number(e.dailyWage)||0]));
+    const empBankMap = Object.fromEntries(emps.map(e => [e.name, e.bankName||'']));
     const s = summarizeBoss(recs, empWageMap);
 
     let html = bossSummaryHtml(s);
@@ -934,12 +935,18 @@ async function viewBoss(app){
       <div style="margin-top:18px">
         <button class="btn" id="csvBtn">📄 CSV出力（この月）</button>
       </div>
-      <div style="margin-top:10px;display:flex;gap:8px;align-items:stretch">
-        <select id="yayoiAccSel" style="flex:1;font-size:16px">
-          <option value="旅費交通費">交通費・遠方 → 旅費交通費</option>
-          <option value="外注費">交通費・遠方 → 外注費</option>
+      <div style="margin-top:10px">
+        <select id="yayoiPaySel" style="width:100%;font-size:16px;padding:12px;border:2px solid var(--line);border-radius:12px;background:#fff;margin-bottom:6px">
+          <option value="普通預金">支払方法：銀行振込（普通預金）</option>
+          <option value="現金">支払方法：現金払い（現金）</option>
         </select>
-        <button class="btn ghost" id="yayoiBtn" style="width:auto;white-space:nowrap;margin-top:0;padding:14px 16px;font-size:17px">🏦 弥生CSV</button>
+        <div style="display:flex;gap:8px;align-items:stretch">
+          <select id="yayoiAccSel" style="flex:1;font-size:16px">
+            <option value="旅費交通費">交通費・遠方 → 旅費交通費</option>
+            <option value="外注費">交通費・遠方 → 外注費</option>
+          </select>
+          <button class="btn ghost" id="yayoiBtn" style="width:auto;white-space:nowrap;margin-top:0;padding:14px 16px;font-size:17px">🏦 弥生CSV</button>
+        </div>
       </div>`;
 
     const byEmp={};
@@ -988,7 +995,7 @@ async function viewBoss(app){
 
     body.innerHTML = html;
     $('#csvBtn').onclick=()=> exportCsv(recs, selectedMonth, empWageMap);
-    $('#yayoiBtn').onclick=()=> exportYayoiCsv(recs, selectedMonth, empWageMap, $('#yayoiAccSel').value);
+    $('#yayoiBtn').onclick=()=> exportYayoiCsv(recs, selectedMonth, empWageMap, $('#yayoiAccSel').value, $('#yayoiPaySel').value, empBankMap);
   }
 }
 
@@ -1003,6 +1010,8 @@ async function viewEmployees(app){
         <input id="e_name" type="text" placeholder="例：山田 太郎">
         <label>日当（円）</label>
         <input id="e_wage" type="number" inputmode="numeric" min="0" placeholder="例：15000">
+        <label>振込銀行名（任意）</label>
+        <input id="e_bank" type="text" placeholder="例：北洋銀行">
         <input type="hidden" id="e_id" value="">
         <button class="btn" id="saveEmpBtn" style="margin-top:12px">追加する</button>
         <button class="btn ghost" id="cancelEmpBtn" style="display:none;margin-top:8px">キャンセル</button>
@@ -1023,9 +1032,9 @@ async function viewEmployees(app){
       <div class="card" style="display:flex;align-items:center;gap:10px;margin-top:10px">
         <div style="flex:1">
           <div style="font-size:17px;font-weight:700">${escapeHtml(e.name)}</div>
-          <div style="font-size:14px;color:var(--muted)">日当 ${yen(e.dailyWage||0)}</div>
+          <div style="font-size:14px;color:var(--muted)">日当 ${yen(e.dailyWage||0)}${e.bankName ? ' ・ ' + escapeHtml(e.bankName) : ''}</div>
         </div>
-        <button class="btn ghost sm" style="width:auto" data-id="${e.id}" data-name="${escapeHtml(e.name)}" data-wage="${Number(e.dailyWage)||0}" data-action="edit">編集</button>
+        <button class="btn ghost sm" style="width:auto" data-id="${e.id}" data-name="${escapeHtml(e.name)}" data-wage="${Number(e.dailyWage)||0}" data-bank="${escapeHtml(e.bankName||'')}" data-action="edit">編集</button>
         <button class="btn danger sm" style="width:auto;font-size:15px" data-id="${e.id}" data-action="del">削除</button>
       </div>`).join('');
 
@@ -1033,6 +1042,7 @@ async function viewEmployees(app){
       $('#e_id').value = btn.dataset.id;
       $('#e_name').value = btn.dataset.name;
       $('#e_wage').value = btn.dataset.wage;
+      $('#e_bank').value = btn.dataset.bank||'';
       $('#formTitle').textContent = '従業員を編集';
       $('#saveEmpBtn').textContent = '更新する';
       $('#cancelEmpBtn').style.display = '';
@@ -1051,6 +1061,7 @@ async function viewEmployees(app){
     $('#e_id').value = '';
     $('#e_name').value = '';
     $('#e_wage').value = '';
+    $('#e_bank').value = '';
     $('#formTitle').textContent = '従業員を追加';
     $('#saveEmpBtn').textContent = '追加する';
     $('#cancelEmpBtn').style.display = 'none';
@@ -1061,8 +1072,9 @@ async function viewEmployees(app){
     const name = $('#e_name').value.trim();
     if(!name){ toast('従業員名を入力してください'); return; }
     const wage = Number($('#e_wage').value)||0;
+    const bankName = $('#e_bank').value.trim();
     const id = $('#e_id').value || undefined;
-    await Store.saveEmployee({ id, name, dailyWage: wage });
+    await Store.saveEmployee({ id, name, dailyWage: wage, bankName });
     toast(editMode ? '更新しました' : '追加しました');
     resetForm();
     await drawEmpList();
@@ -1170,7 +1182,7 @@ function exportCsv(recs, ym, empWageMap={}){
 }
 
 /* ---------- 弥生青色申告用 仕訳CSV出力 ---------- */
-function exportYayoiCsv(recs, ym, empWageMap={}, expenseAccount='旅費交通費'){
+function exportYayoiCsv(recs, ym, empWageMap={}, expenseAccount='旅費交通費', creditAccount='普通預金', empBankMap={}){
   const [y, m] = ym.split('-').map(Number);
   const lastDay = new Date(y, m, 0).getDate();
   const dateStr = `${y}/${pad2(m)}/${pad2(lastDay)}`;
@@ -1197,12 +1209,14 @@ function exportYayoiCsv(recs, ym, empWageMap={}, expenseAccount='旅費交通費
 
   Object.keys(byEmp).sort().forEach(name => {
     const e = byEmp[name];
+    const bank = empBankMap[name] || '';
+    const bankSuffix = bank ? ` ${bank}振込` : '';
     if(e.salary > 0)
-      lines.push([dateStr, `${ymLabel} 給与 ${name}`, '給料手当', e.salary, '現金', e.salary].map(csvCell).join(','));
+      lines.push([dateStr, `${ymLabel} 給与 ${name}${bankSuffix}`, '給料手当', e.salary, creditAccount, e.salary].map(csvCell).join(','));
     if(e.transport > 0)
-      lines.push([dateStr, `${ymLabel} 交通費 ${name}`, expenseAccount, e.transport, '現金', e.transport].map(csvCell).join(','));
+      lines.push([dateStr, `${ymLabel} 交通費 ${name}${bankSuffix}`, expenseAccount, e.transport, creditAccount, e.transport].map(csvCell).join(','));
     if(e.remote > 0)
-      lines.push([dateStr, `${ymLabel} 遠方経費 ${name}`, expenseAccount, e.remote, '現金', e.remote].map(csvCell).join(','));
+      lines.push([dateStr, `${ymLabel} 遠方経費 ${name}${bankSuffix}`, expenseAccount, e.remote, creditAccount, e.remote].map(csvCell).join(','));
   });
 
   const blob = new Blob(['﻿' + lines.join('\r\n')], {type:'text/csv;charset=utf-8'});
