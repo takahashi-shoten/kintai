@@ -1181,13 +1181,12 @@ function exportCsv(recs, ym, empWageMap={}){
   toast('CSVを書き出しました');
 }
 
-/* ---------- 弥生青色申告用 仕訳CSV出力（弥生インポート形式 25列） ---------- */
+/* ---------- 弥生青色申告用 CSV出力（実エクスポートファイル互換 6列形式） ---------- */
+/* 列構成: "日付","勘定科目","借方"/"貸方","補助科目","","金額"  ヘッダー行なし */
 function exportYayoiCsv(recs, ym, empWageMap={}, expenseAccount='旅費交通費', creditAccount='普通預金', empBankMap={}){
   const [y, m] = ym.split('-').map(Number);
   const lastDay = new Date(y, m, 0).getDate();
-  // 弥生インポート形式の日付は YYYYMMDD（スラッシュなし）
-  const dateStr = `${y}${pad2(m)}${pad2(lastDay)}`;
-  const ymLabel = `${y}年${pad2(m)}月分`;
+  const dateStr = `${y}/${pad2(m)}/${pad2(lastDay)}`;   // YYYY/MM/DD（スラッシュあり）
 
   // 従業員別に給与（基本日当＋残業代）・交通費・遠方経費を集計
   const byEmp = {};
@@ -1205,30 +1204,34 @@ function exportYayoiCsv(recs, ym, empWageMap={}, expenseAccount='旅費交通費
     byEmp[name].remote += remote;
   });
 
-  // 弥生インポート形式ヘッダー（#で始まる行は弥生が無視する仕様）
-  const lines = [
-    '#識別フラグ,伝票No,決算,取引日付,借方勘定科目,借方補助科目,借方部門,借方税区分,借方金額,借方消費税額,貸方勘定科目,貸方補助科目,貸方部門,貸方税区分,貸方金額,貸方消費税額,摘要,番号,期日,タイプ,生成元,仕訳メモ,付箋1,付箋2,調査'
-  ];
+  // 実ファイルと同じ形式：全フィールドをダブルクォートで囲む・ヘッダーなし
+  const q = v => `"${String(v).replace(/"/g, '""')}"`;
+  const makeRow = (account, side, sub, amount) =>
+    [q(dateStr), q(account), q(side), q(sub), q(''), q(amount)].join(',');
 
-  // 1仕訳行を生成（25列固定・税区分は対象外）
-  const makeRow = (debitAcc, creditAcc, amount, desc) =>
-    `2000,,0,${dateStr},${debitAcc},,,対象外,${amount},0,${creditAcc},,,対象外,${amount},0,${csvCell(desc)},,,,,,,,`;
-
+  const lines = [];
   Object.keys(byEmp).sort().forEach(name => {
     const e = byEmp[name];
-    const bankSuffix = empBankMap[name] ? ` ${empBankMap[name]}振込` : '';
-    if(e.salary > 0)
-      lines.push(makeRow('給料手当', creditAccount, e.salary, `${ymLabel} 給与 ${name}${bankSuffix}`));
-    if(e.transport > 0)
-      lines.push(makeRow(expenseAccount, creditAccount, e.transport, `${ymLabel} 交通費 ${name}${bankSuffix}`));
-    if(e.remote > 0)
-      lines.push(makeRow(expenseAccount, creditAccount, e.remote, `${ymLabel} 遠方経費 ${name}${bankSuffix}`));
+    const bankName = empBankMap[name] || '';
+    if(e.salary > 0){
+      lines.push(makeRow('給料手当',  '借方', name,     e.salary));
+      lines.push(makeRow(creditAccount, '貸方', bankName, e.salary));
+    }
+    if(e.transport > 0){
+      lines.push(makeRow(expenseAccount, '借方', name,     e.transport));
+      lines.push(makeRow(creditAccount,  '貸方', bankName, e.transport));
+    }
+    if(e.remote > 0){
+      lines.push(makeRow(expenseAccount, '借方', name,     e.remote));
+      lines.push(makeRow(creditAccount,  '貸方', bankName, e.remote));
+    }
   });
 
+  // UTF-8 BOM付き（弥生オンラインはUTF-8 BOM対応）
   const blob = new Blob(['﻿' + lines.join('\r\n')], {type:'text/csv;charset=utf-8'});
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
-  a.href=url; a.download='弥生仕訳_'+ym+'.csv';
+  a.href=url; a.download='弥生_'+ym+'.csv';
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(()=>URL.revokeObjectURL(url), 2000);
   toast('弥生CSVを書き出しました');
