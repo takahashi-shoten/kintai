@@ -1115,15 +1115,10 @@ async function viewAdmin(app){
   $('#backupDeleteBtn').onclick = async ()=>{
     const allRecs = await Store.getAll();
     if(!allRecs.length){ toast('削除する勤怠データはありません'); return; }
-    // 1. CSVバックアップを先に出力
+    if(!confirm('全勤怠データをCSVバックアップしてから削除します。\nよろしいですか？\n（この操作は取り消せません）')) return;
     const emps = await Store.getEmployees();
     const empWageMap = Object.fromEntries(emps.map(e => [e.name, Number(e.dailyWage)||0]));
     exportCsv(allRecs, '全期間バックアップ', empWageMap);
-    // 2. 1回目の確認
-    await new Promise(r => setTimeout(r, 600));
-    if(!confirm('CSVバックアップは保存しましたか？\n保存済みであれば「OK」を押してください。')) return;
-    // 3. 2回目の確認
-    if(!confirm('本当に全ての勤怠データを削除しますか？\nこの操作は取り消せません。')) return;
     await Store.clearAllRecords();
     toast('全ての勤怠データを削除しました');
   };
