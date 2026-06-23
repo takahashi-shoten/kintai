@@ -395,7 +395,7 @@ async function viewHome(app){
     <div class="wrap">
       <div class="tiles">
         <div class="tile big" data-go="/entry">
-          <span class="ic">🎤</span>今日の勤怠を入力
+          <span class="ic"><svg viewBox="0 0 24 24" fill="currentColor" width="1em" height="1em" style="vertical-align:middle"><path d="M12 2C10.34 2 9 3.34 9 5v6c0 1.66 1.34 3 3 3s3-1.34 3-3V5c0-1.66-1.34-3-3-3zm-1 3c0-.55.45-1 1-1s1 .45 1 1v6c0 .55-.45 1-1 1s-1-.45-1-1V5zm8 5c0 3.53-2.61 6.43-6 6.92V19h2v2H9v-2h2v-2.08C7.61 17.43 5 14.53 5 10H7c0 2.76 2.24 5 5 5s5-2.24 5-5h2z"/></svg></span>今日の勤怠を入力
           <small>${todayStrLabel()}</small>
         </div>
         <div class="tile" data-go="/list"><span class="ic">📋</span>月別一覧</div>
@@ -458,7 +458,7 @@ async function viewEntry(app){
       <textarea id="f_voice" class="voice" autofocus placeholder="例：砂川市 明山邸 8時から18時 交通費5000円 遠方経費2000円"></textarea>
       <div class="hint" id="micHint">入力欄を押すとキーボードが出ます。キーボードのマイク 🎤 を押して話すと、ここに文字が入り、自動で振り分けます。</div>
       <button class="btn accent sm" id="parseBtn" style="margin-top:10px">解析する（自動でも実行されます）</button>
-      <button class="mic-big" id="micBtn" style="display:none;border-radius:var(--radius);border:none;cursor:pointer;width:100%;margin-top:10px"><span class="mi">🎙️</span><span id="micLabel">マイクで話す</span></button>
+      <button class="mic-big" id="micBtn" style="display:none;border-radius:var(--radius);border:none;cursor:pointer;width:100%;margin-top:10px"><span class="mi"><svg viewBox="0 0 24 24" fill="currentColor" width="1em" height="1em" style="vertical-align:middle"><path d="M12 2C10.34 2 9 3.34 9 5v6c0 1.66 1.34 3 3 3s3-1.34 3-3V5c0-1.66-1.34-3-3-3zm-1 3c0-.55.45-1 1-1s1 .45 1 1v6c0 .55-.45 1-1 1s-1-.45-1-1V5zm8 5c0 3.53-2.61 6.43-6 6.92V19h2v2H9v-2h2v-2.08C7.61 17.43 5 14.53 5 10H7c0 2.76 2.24 5 5 5s5-2.24 5-5h2z"/></svg></span><span id="micLabel">マイクで話す</span></button>
 
       <label>日付</label>
       <input id="f_date" type="date" value="${escapeHtml(rec.date)}">
