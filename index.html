@@ -462,9 +462,8 @@ async function viewEntry(app){
       <label>日付</label>
       <input id="f_date" type="date" value="${escapeHtml(rec.date)}">
 
-      <label>従業員名</label>
-      <select id="f_emp_sel" style="display:none"></select>
-      <input id="f_emp" type="text" value="${escapeHtml(rec.employeeName)}" placeholder="例：高橋 太郎">
+      <label>社員名</label>
+      <div id="f_emp_display" style="font-size:17px;font-weight:600;padding:10px 0">${escapeHtml(rec.employeeName||'（未設定）')}</div>
 
       <label>出勤区分</label>
       <div class="seg" id="segStatus">
@@ -514,34 +513,12 @@ async function viewEntry(app){
   }
   seg.querySelectorAll('button').forEach(b=> b.onclick=()=>{ status=b.dataset.v; paintSeg(); });
 
-  // 従業員セレクト（登録がある場合はドロップダウンで選択）
+  // 社員名はホーム画面の登録名を固定使用（変更不可）
   const emps = await Store.getEmployees();
-  const empSel = $('#f_emp_sel');
-  const empInp = $('#f_emp');
-  if(emps.length > 0){
-    const isKnown = emps.some(e => e.name === rec.employeeName);
-    empSel.innerHTML = '<option value="">名前を選んでください</option>' +
-      emps.map(e => `<option value="${escapeHtml(e.name)}"${e.name===rec.employeeName?' selected':''}>${escapeHtml(e.name)}</option>`).join('') +
-      '<option value="__manual__"'+(rec.employeeName&&!isKnown?' selected':'')+'>その他（直接入力）</option>';
-    empSel.style.display = '';
-    empInp.style.display = (rec.employeeName && isKnown) ? 'none' : '';
-    empSel.onchange = () => {
-      if(empSel.value === '__manual__' || empSel.value === ''){
-        empInp.style.display = '';
-        if(empSel.value === '') empInp.value = '';
-      } else {
-        empInp.value = empSel.value;
-        empInp.style.display = 'none';
-      }
-      recalcOtPay();
-    };
-    empInp.addEventListener('input', recalcOtPay);
-  }
+  const empName = rec.employeeName; // 新規: ホーム画面名、編集: 記録の名前
 
   function getEmpWage(){
-    const name = (empSel.style.display !== 'none' && empSel.value && empSel.value !== '__manual__')
-      ? empSel.value : empInp.value.trim();
-    const emp = emps.find(e => e.name === name);
+    const emp = emps.find(e => e.name === empName);
     return emp ? Number(emp.dailyWage) || 0 : 0;
   }
   function recalcOtPay(){
@@ -683,7 +660,7 @@ async function viewEntry(app){
     const out={
       id: rec.id,
       date: $('#f_date').value || todayStr(),
-      employeeName: $('#f_emp').value.trim() || '従業員',
+      employeeName: empName || '従業員',
       siteName: $('#f_site').value.trim(),
       startTime: $('#f_start').value,
       endTime: $('#f_end').value,
