@@ -743,7 +743,7 @@ async function viewList(app){
 
 /* ---------- 集計（共通計算） ---------- */
 function summarize(recs){
-  const s={days:0, present:0, half:0, off:0, transport:0, remote:0, workMin:0, sites:{}};
+  const s={days:0, present:0, half:0, off:0, transport:0, remote:0, workMin:0, otHours:0, sites:{}};
   recs.forEach(r=>{
     s.days += dayValue(r.workStatus);
     if(r.workStatus==='present') s.present++;
@@ -752,6 +752,7 @@ function summarize(recs){
     s.transport += Number(r.transportCost)||0;
     s.remote += Number(r.remoteCost)||0;
     s.workMin += workMinutes(r);
+    s.otHours += Number(r.overtimeHours)||0;
     if(r.workStatus!=='off'){
       const key=r.siteName||'（現場名なし）';
       const g = s.sites[key] || (s.sites[key]={days:0, transport:0, remote:0, workMin:0});
@@ -794,10 +795,9 @@ function summaryHtml(s){
   return `
     <div class="stat" style="margin-top:14px">
       <div class="box"><div class="v">${s.days}</div><div class="l">出勤日数合計</div></div>
-      <div class="box"><div class="v">${fmtMin(s.workMin)}</div><div class="l">実働時間合計</div></div>
+      <div class="box"><div class="v">${s.otHours}時間</div><div class="l">残業時間合計</div></div>
       <div class="box"><div class="v">${yen(s.transport)}</div><div class="l">交通費合計</div></div>
       <div class="box"><div class="v">${yen(s.remote)}</div><div class="l">遠方経費合計</div></div>
-      <div class="box wide"><div class="v">${yen(s.transport+s.remote)}</div><div class="l">交通費＋遠方経費 合計</div></div>
     </div>
     <div class="hint" style="margin-top:8px">内訳：出勤${s.present}日・半日${s.half}回・休み${s.off}日</div>
     <div class="card">
