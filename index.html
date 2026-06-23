@@ -430,12 +430,8 @@ async function viewHome(app){
     const emp=$('#empName');
     emp.onchange=()=> Store.setSetting('employeeName', emp.value.trim());
   }
-  $('#bossBtn').onclick = async ()=>{
-    if(await checkPin('bossPin', '社長確認画面の暗証番号を入力してください')) go('/boss');
-  };
-  $('#adminBtn').onclick = async ()=>{
-    if(await checkPin('adminPin', '管理者暗証番号を入力してください')) go('/admin');
-  };
+  $('#bossBtn').onclick = ()=> go('/boss');
+  $('#adminBtn').onclick = ()=> go('/admin');
 }
 
 /* ---------- 勤怠入力 ---------- */
