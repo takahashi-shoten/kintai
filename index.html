@@ -1235,7 +1235,7 @@ function exportYayoiCsv(recs, ym, empWageMap={}, expenseAccount='旅費交通費
   Object.keys(byEmp).sort().forEach(name => {
     const e = byEmp[name];
     if(e.salary > 0)
-      lines.push(makeRow('給料手当',    creditAccount, e.salary,    `${ymLabel} 給与 ${name}`));
+      lines.push(makeRow('給料賃金',    creditAccount, e.salary,    `${ymLabel} 給与 ${name}`));
     if(e.transport > 0)
       lines.push(makeRow(expenseAccount, creditAccount, e.transport, `${ymLabel} 交通費 ${name}`));
     if(e.remote > 0)
