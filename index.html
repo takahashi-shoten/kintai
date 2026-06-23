@@ -1231,9 +1231,7 @@ function exportYayoiCsv(recs, ym, empWageMap={}, expenseAccount='旅費交通費
      q(creditAcc),q(''),q(''),q('対象外'),q(amount),q('0'),q(desc),q(''),q(''),q('0'),
      q(''),q(''),q('0'),q(''),q('no'),q(''),q('')].join(',');
 
-  const lines = [
-    '#識別フラグ,伝票No,決算,取引日付,借方勘定科目,借方補助科目,借方部門,借方税区分,借方金額,借方消費税額,貸方勘定科目,貸方補助科目,貸方部門,貸方税区分,貸方金額,貸方消費税額,摘要,番号,期日,タイプ,生成元,仕訳メモ,付箋1,付箋2,調査,取引先,取引先2'
-  ];
+  const lines = [];
   Object.keys(byEmp).sort().forEach(name => {
     const e = byEmp[name];
     if(e.salary > 0)
