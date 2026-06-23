@@ -1245,8 +1245,9 @@ function exportYayoiCsv(recs, ym, empWageMap={}, expenseAccount='旅費交通費
       lines.push(makeRow(expenseAccount, creditAccount, e.remote,    `${ymLabel} 遠方経費 ${name}`));
   });
 
-  // UTF-8 BOM付きで出力（参照ファイルと同じエンコード）
-  const blob = new Blob(['﻿' + lines.join('\r\n')], {type: 'text/csv;charset=utf-8'});
+  // Shift-JIS エンコードで出力（弥生は Shift-JIS 必須）
+  const sjisBytes = strToShiftJIS(lines.join('\r\n'));
+  const blob = new Blob([sjisBytes], {type: 'text/csv;charset=shift_jis'});
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url; a.download = '弥生_' + ym + '.csv';
