@@ -399,15 +399,13 @@ async function viewHome(app){
         <div class="tile" data-go="/summary"><span class="ic">📊</span>月別集計</div>
       </div>
       <div class="card">
-        <h3>従業員名（この端末の既定）</h3>
+        <h3>社員名</h3>
         ${name
           ? `<div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
-              <div>
-                <div style="font-size:19px;font-weight:700">${escapeHtml(name)}</div>
-                <div class="hint" style="margin-top:3px">変更は管理者のみ可能です</div>
-              </div>
+              <div style="font-size:19px;font-weight:700">${escapeHtml(name)}</div>
               <button class="btn ghost sm" id="changeNameBtn" style="width:auto">変更</button>
-             </div>`
+             </div>
+             <div class="hint" style="margin-top:6px">変更は管理者のみ可能です</div>`
           : `<input id="empName" type="text" placeholder="例：高橋 太郎" value="">
              <div class="hint">入力後は固定されます。変更は管理者に依頼してください。</div>`}
       </div>
