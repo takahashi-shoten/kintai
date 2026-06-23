@@ -1201,15 +1201,11 @@ function strToShiftJIS(str) {
   return new Uint8Array(bytes);
 }
 
-/* ---------- 弥生青色申告用 CSV出力（25列仕訳形式・Shift-JIS・実ファイル完全一致） ---------- */
-/* 参照ファイルの列構成（ヘッダー行あり・値クォートなし・日付YYYYMMDD）:
-   #識別フラグ,伝票No,決算,取引日付,借方勘定科目,借方補助科目,借方部門,借方税区分,
-   借方金額,借方消費税額,貸方勘定科目,貸方補助科目,貸方部門,貸方税区分,貸方金額,
-   貸方消費税額,摘要,番号,期日,タイプ,生成元,仕訳メモ,付箋1,付箋2,調査          */
+/* ---------- 弥生青色申告用 CSV出力（27列仕訳形式・Shift-JIS・エクスポートファイル準拠） ---------- */
 function exportYayoiCsv(recs, ym, empWageMap={}, expenseAccount='旅費交通費', creditAccount='普通預金', empBankMap={}){
   const [y, m] = ym.split('-').map(Number);
   const lastDay = new Date(y, m, 0).getDate();
-  const dateStr = `${y}${pad2(m)}${pad2(lastDay)}`; // YYYYMMDD（スラッシュなし）
+  const dateStr = `${y}/${pad2(m)}/${pad2(lastDay)}`; // YYYY/MM/DD（弥生エクスポート形式）
   const ymLabel = `${y}年${pad2(m)}月分`;
 
   // 従業員別に給与（基本日当＋残業代）・交通費・遠方経費を集計
@@ -1228,12 +1224,15 @@ function exportYayoiCsv(recs, ym, empWageMap={}, expenseAccount='旅費交通費
     byEmp[name].remote += remote;
   });
 
-  // 参照ファイル完全一致：25列・値クォートなし・借方貸方ともに税区分=対象外
+  // 27列・エクスポートファイルと同じ構造（決算=空,タイプ=0,付箋1=0,調査=no）
+  const q = s => `"${s}"`;
   const makeRow = (debitAcc, creditAcc, amount, desc) =>
-    `2000,,0,${dateStr},${debitAcc},,,対象外,${amount},0,${creditAcc},,,対象外,${amount},0,${desc},,,,,,,,`;
+    [q('2000'),q(''),q(''),q(dateStr),q(debitAcc),q(''),q(''),q('対象外'),q(amount),q('0'),
+     q(creditAcc),q(''),q(''),q('対象外'),q(amount),q('0'),q(desc),q(''),q(''),q('0'),
+     q(''),q(''),q('0'),q(''),q('no'),q(''),q('')].join(',');
 
   const lines = [
-    '#識別フラグ,伝票No,決算,取引日付,借方勘定科目,借方補助科目,借方部門,借方税区分,借方金額,借方消費税額,貸方勘定科目,貸方補助科目,貸方部門,貸方税区分,貸方金額,貸方消費税額,摘要,番号,期日,タイプ,生成元,仕訳メモ,付箋1,付箋2,調査'
+    '#識別フラグ,伝票No,決算,取引日付,借方勘定科目,借方補助科目,借方部門,借方税区分,借方金額,借方消費税額,貸方勘定科目,貸方補助科目,貸方部門,貸方税区分,貸方金額,貸方消費税額,摘要,番号,期日,タイプ,生成元,仕訳メモ,付箋1,付箋2,調査,取引先,取引先2'
   ];
   Object.keys(byEmp).sort().forEach(name => {
     const e = byEmp[name];
