@@ -39,8 +39,8 @@
     background:var(--primary);color:#fff;padding:14px 14px;padding-top:calc(14px + env(safe-area-inset-top));
     font-size:20px;font-weight:700;box-shadow:0 2px 6px rgba(0,0,0,.15)}
   header.bar .back{background:rgba(255,255,255,.18);border:none;color:#fff;font-size:18px;
-    padding:8px 12px;border-radius:10px;font-weight:700}
-  header.bar .title{flex:1;text-align:center;padding-right:48px}
+    padding:8px 12px;border-radius:10px;font-weight:700;position:relative;z-index:1}
+  header.bar .title{position:absolute;left:0;right:0;text-align:center;pointer-events:none}
   .wrap{padding:16px}
 
   /* ホームのタイル */
