@@ -306,6 +306,7 @@ const Store = {
       list.push(rec);
     }
     this._write(list);
+    CloudSync.syncUp(rec); // バックグラウンドでクラウドへ同期
     return rec;
   },
   async remove(id){ this._write(this._read().filter(r=>r.id!==id)); },
@@ -337,6 +338,75 @@ const Store = {
     return e ? (Number(e.dailyWage)||0) : 0;
   },
   async clearAllRecords(){ this._write([]); }
+};
+
+/* ---------- クラウド同期（JSONBin.io） ---------- */
+const CloudSync = {
+  get apiKey(){ return localStorage.getItem('cloud_api_key')||''; },
+  set apiKey(v){ localStorage.setItem('cloud_api_key', v); },
+  get binId(){ return localStorage.getItem('cloud_bin_id')||''; },
+  set binId(v){ localStorage.setItem('cloud_bin_id', v); },
+  isReady(){ return !!(this.apiKey && this.binId); },
+
+  async createBin(){
+    const r = await fetch('https://api.jsonbin.io/v3/b', {
+      method:'POST',
+      headers:{'Content-Type':'application/json','X-Master-Key':this.apiKey,'X-Bin-Name':'高橋商店_勤怠','X-Bin-Private':'true'},
+      body: JSON.stringify({records:[]})
+    });
+    if(!r.ok) throw new Error('Bin作成失敗('+r.status+')');
+    const d = await r.json();
+    return d.metadata.id;
+  },
+
+  async pull(){
+    if(!this.isReady()) return null;
+    const r = await fetch('https://api.jsonbin.io/v3/b/'+this.binId+'/latest',{headers:{'X-Master-Key':this.apiKey}});
+    if(!r.ok) return null;
+    const d = await r.json();
+    return Array.isArray(d.record?.records) ? d.record.records : [];
+  },
+
+  async push(records){
+    if(!this.isReady()) return false;
+    const r = await fetch('https://api.jsonbin.io/v3/b/'+this.binId,{
+      method:'PUT',
+      headers:{'Content-Type':'application/json','X-Master-Key':this.apiKey},
+      body: JSON.stringify({records})
+    });
+    return r.ok;
+  },
+
+  async syncUp(newRec){
+    if(!this.isReady()) return;
+    try {
+      const cloud = await this.pull() || [];
+      const i = cloud.findIndex(r=>r.id===newRec.id);
+      if(i>=0) cloud[i]=newRec; else cloud.push(newRec);
+      await this.push(cloud);
+    } catch(e){ console.warn('syncUp失敗:',e); }
+  },
+
+  async syncDown(){
+    if(!this.isReady()) return {ok:false,count:0};
+    try {
+      const cloud = await this.pull();
+      if(!cloud) return {ok:false,count:0};
+      const local = Store._read();
+      let n=0;
+      cloud.forEach(cr=>{
+        const i=local.findIndex(lr=>lr.id===cr.id);
+        if(i<0){ local.push(cr); n++; }
+        else {
+          const lt=new Date(local[i].updatedAt||0).getTime();
+          const ct=new Date(cr.updatedAt||0).getTime();
+          if(ct>lt){ local[i]=cr; n++; }
+        }
+      });
+      Store._write(local);
+      return {ok:true,count:n};
+    } catch(e){ console.warn('syncDown失敗:',e); return {ok:false,count:0}; }
+  }
 };
 
 /* =====================================================================
@@ -889,11 +959,30 @@ async function viewBoss(app){
   if(!await checkPin('bossPin', '社長確認画面の暗証番号を入力してください')){ go('/'); return; }
   app.innerHTML = header('社長確認画面', true) + `
     <div class="wrap">
-      <div class="monthsel"><select id="monthSel"></select></div>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+        <div class="monthsel" style="flex:1;margin-bottom:0"><select id="monthSel"></select></div>
+        <button class="btn ghost sm" id="syncBtn" style="width:auto;white-space:nowrap;padding:10px 14px">☁️ 同期</button>
+      </div>
+      <div id="syncMsg" style="font-size:13px;color:#888;margin-bottom:8px"></div>
       <div id="bossBody"></div>
     </div>`;
   $('#monthSel').innerHTML = await monthOptionsHtml();
   $('#monthSel').onchange=(e)=>{ selectedMonth=e.target.value; drawBoss(); };
+
+  $('#syncBtn').onclick = async ()=>{
+    if(!CloudSync.isReady()){ toast('管理者画面でクラウド同期を設定してください'); return; }
+    $('#syncMsg').textContent = '同期中...';
+    const {ok,count} = await CloudSync.syncDown();
+    $('#syncMsg').textContent = ok ? `✅ 同期完了（${count}件更新）` : '❌ 同期失敗。接続を確認してください';
+    if(ok) await drawBoss();
+  };
+
+  // 画面を開いたとき自動で同期
+  if(CloudSync.isReady()){
+    $('#syncMsg').textContent = '同期中...';
+    const {ok,count} = await CloudSync.syncDown();
+    $('#syncMsg').textContent = ok ? `✅ 同期完了（${count}件更新）` : '⚠️ クラウド同期失敗';
+  }
   await drawBoss();
 
   async function drawBoss(){
@@ -1083,6 +1172,18 @@ async function viewAdmin(app){
         <button class="btn ghost sm" id="saveBossPinBtn" style="margin-top:10px">社長PINを変更する</button>
       </div>
 
+      <div class="card" style="margin-top:14px">
+        <h3>☁️ クラウド同期設定</h3>
+        <p class="hint" style="margin-top:6px">従業員の端末のデータを社長確認画面に同期します。<a href="https://jsonbin.io" target="_blank">jsonbin.io</a>の無料アカウントが必要です。</p>
+        <input id="cloud_key_inp" type="text" placeholder="JSONBin APIキー（$2b$10$...）" autocomplete="off" style="margin-top:10px;font-size:13px;font-family:monospace" value="${CloudSync.apiKey}">
+        <div id="cloud_bin_disp" style="margin-top:6px;font-size:13px;color:#888">${CloudSync.binId ? 'Bin ID: '+CloudSync.binId : '未接続'}</div>
+        <div style="display:flex;gap:8px;margin-top:10px">
+          <button class="btn ghost sm" id="cloudConnBtn" style="flex:1">接続する</button>
+          <button class="btn ghost sm" id="cloudBinInpBtn" style="flex:1">Bin IDを手入力</button>
+        </div>
+        <div id="cloud_status_msg" style="margin-top:8px;font-size:13px"></div>
+      </div>
+
       <div class="card" style="margin-top:20px;border:2px solid var(--danger)">
         <h3 style="color:var(--danger)">⚠️ テストデータ全削除</h3>
         <p class="hint" style="margin-top:6px">勤怠記録のみ削除します。従業員名・日当・暗証番号は削除されません。</p>
@@ -1091,6 +1192,36 @@ async function viewAdmin(app){
     </div>`;
 
   $('#empMgmtBtn').onclick = ()=> go('/employees');
+
+  $('#cloudConnBtn').onclick = async ()=>{
+    const key = $('#cloud_key_inp').value.trim();
+    if(!key){ toast('APIキーを入力してください'); return; }
+    CloudSync.apiKey = key;
+    const msg = $('#cloud_status_msg');
+    msg.textContent = '接続中...'; msg.style.color='#888';
+    try {
+      const binId = await CloudSync.createBin();
+      CloudSync.binId = binId;
+      $('#cloud_bin_disp').textContent = 'Bin ID: ' + binId;
+      msg.textContent = '✅ 接続成功！このBin IDを他の端末にも入力してください。';
+      msg.style.color = 'var(--ok)';
+    } catch(e){
+      msg.textContent = '❌ 接続失敗：APIキーを確認してください';
+      msg.style.color = 'var(--danger)';
+    }
+  };
+
+  $('#cloudBinInpBtn').onclick = ()=>{
+    const bid = prompt('Bin IDを入力してください（他の端末で作成したBin ID）');
+    if(!bid) return;
+    const key = $('#cloud_key_inp').value.trim() || CloudSync.apiKey;
+    if(!key){ toast('先にAPIキーを入力してください'); return; }
+    CloudSync.apiKey = key;
+    CloudSync.binId = bid.trim();
+    $('#cloud_bin_disp').textContent = 'Bin ID: ' + bid.trim();
+    $('#cloud_status_msg').textContent = '✅ 設定しました';
+    $('#cloud_status_msg').style.color = 'var(--ok)';
+  };
 
   $('#saveAdminPinBtn').onclick = async ()=>{
     const np = $('#a_pin_new').value.trim();
