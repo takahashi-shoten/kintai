@@ -340,60 +340,33 @@ const Store = {
   async clearAllRecords(){ this._write([]); }
 };
 
-/* ---------- クラウド同期（jsonblob.com・アカウント不要） ---------- */
+/* ---------- クラウド同期（Firebase Realtime Database） ---------- */
 const CloudSync = {
-  BASE: 'https://jsonblob.com/api/jsonBlob',
-  get blobUrl(){ return localStorage.getItem('cloud_blob_url')||''; },
-  set blobUrl(v){ localStorage.setItem('cloud_blob_url', v); },
-  isReady(){ return !!this.blobUrl; },
-  syncCode(){ return this.blobUrl.replace(this.BASE+'/',''); },
+  get dbUrl(){ return (localStorage.getItem('firebase_url')||'').replace(/\/+$/,''); },
+  set dbUrl(v){ localStorage.setItem('firebase_url', v.replace(/\/+$/,'')); },
+  isReady(){ return !!this.dbUrl; },
 
-  async create(){
-    const r = await fetch(this.BASE, {
-      method:'POST',
-      headers:{'Content-Type':'application/json','Accept':'application/json'},
-      body: JSON.stringify({records:[]})
-    });
-    if(!r.ok) throw new Error('作成失敗('+r.status+')');
-    const url = r.headers.get('Location');
-    if(!url) throw new Error('URLが取得できません');
-    this.blobUrl = url;
-    return url;
-  },
-
-  async pull(){
-    if(!this.isReady()) return null;
-    const r = await fetch(this.blobUrl,{headers:{'Accept':'application/json'}});
-    if(!r.ok) return null;
-    const d = await r.json();
-    return Array.isArray(d.records) ? d.records : [];
-  },
-
-  async push(records){
-    if(!this.isReady()) return false;
-    const r = await fetch(this.blobUrl,{
-      method:'PUT',
-      headers:{'Content-Type':'application/json','Accept':'application/json'},
-      body: JSON.stringify({records})
-    });
-    return r.ok;
-  },
-
-  async syncUp(newRec){
+  // 1件保存
+  async syncUp(rec){
     if(!this.isReady()) return;
     try {
-      const cloud = await this.pull() || [];
-      const i = cloud.findIndex(r=>r.id===newRec.id);
-      if(i>=0) cloud[i]=newRec; else cloud.push(newRec);
-      await this.push(cloud);
+      await fetch(this.dbUrl+'/kintai/'+rec.id+'.json',{
+        method:'PUT',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify(rec)
+      });
     } catch(e){ console.warn('syncUp失敗:',e); }
   },
 
+  // 全件取得してローカルにマージ
   async syncDown(){
     if(!this.isReady()) return {ok:false,count:0};
     try {
-      const cloud = await this.pull();
-      if(!cloud) return {ok:false,count:0};
+      const r = await fetch(this.dbUrl+'/kintai.json');
+      if(!r.ok) return {ok:false,count:0};
+      const data = await r.json();
+      if(!data) return {ok:true,count:0};
+      const cloud = Object.values(data);
       const local = Store._read();
       let n=0;
       cloud.forEach(cr=>{
@@ -1219,8 +1192,11 @@ async function viewAdmin(app){
       </div>
 
       <div class="card" style="margin-top:14px">
-        <h3>📤 データ共有について</h3>
-        <p class="hint" style="margin-top:6px">従業員はホーム画面の「今月のデータを社長に送る」ボタンでLINEやiMessageを使って社長にデータを送れます。社長がリンクをタップすると自動で取り込まれます。</p>
+        <h3>☁️ クラウド同期設定（Firebase）</h3>
+        <p class="hint" style="margin-top:6px">Firebase Realtime DatabaseのURLを入力すると、従業員の勤怠データが自動で社長確認画面に同期されます。</p>
+        <input id="fb_url_inp" type="url" placeholder="https://xxx-default-rtdb.firebaseio.com" style="margin-top:10px;font-size:13px;font-family:monospace" value="${CloudSync.dbUrl}">
+        <button class="btn ghost sm" id="fbSaveBtn" style="margin-top:10px">保存して接続テスト</button>
+        <div id="fb_status_msg" style="margin-top:8px;font-size:13px;color:${CloudSync.isReady()?'var(--ok)':'#888'}">${CloudSync.isReady()?'✅ 接続設定済み':'未設定'}</div>
       </div>
 
       <div class="card" style="margin-top:20px;border:2px solid var(--danger)">
@@ -1231,6 +1207,22 @@ async function viewAdmin(app){
     </div>`;
 
   $('#empMgmtBtn').onclick = ()=> go('/employees');
+
+  $('#fbSaveBtn').onclick = async ()=>{
+    const url = $('#fb_url_inp').value.trim();
+    if(!url){ toast('URLを入力してください'); return; }
+    CloudSync.dbUrl = url;
+    const msg = $('#fb_status_msg');
+    msg.textContent = '接続テスト中...'; msg.style.color='#888';
+    const {ok} = await CloudSync.syncDown();
+    if(ok){
+      msg.textContent = '✅ 接続成功！同じURLを全端末に設定してください。';
+      msg.style.color = 'var(--ok)';
+    } else {
+      msg.textContent = '❌ 接続失敗。URLとデータベースのルール設定を確認してください。';
+      msg.style.color = 'var(--danger)';
+    }
+  };
 
 
   $('#saveAdminPinBtn').onclick = async ()=>{
