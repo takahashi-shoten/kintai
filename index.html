@@ -341,10 +341,11 @@ const Store = {
 };
 
 /* ---------- クラウド同期（Firebase Realtime Database） ---------- */
+const FIREBASE_URL = 'https://kintaikanri-664ab-default-rtdb.asia-southeast1.firebasedatabase.app';
+
 const CloudSync = {
-  get dbUrl(){ return (localStorage.getItem('firebase_url')||'').replace(/\/+$/,''); },
-  set dbUrl(v){ localStorage.setItem('firebase_url', v.replace(/\/+$/,'')); },
-  isReady(){ return !!this.dbUrl; },
+  get dbUrl(){ return FIREBASE_URL; },
+  isReady(){ return true; },
 
   // 1件保存
   async syncUp(rec){
@@ -1191,13 +1192,6 @@ async function viewAdmin(app){
         <button class="btn ghost sm" id="saveBossPinBtn" style="margin-top:10px">社長PINを変更する</button>
       </div>
 
-      <div class="card" style="margin-top:14px">
-        <h3>☁️ クラウド同期設定（Firebase）</h3>
-        <p class="hint" style="margin-top:6px">Firebase Realtime DatabaseのURLを入力すると、従業員の勤怠データが自動で社長確認画面に同期されます。</p>
-        <input id="fb_url_inp" type="url" placeholder="https://xxx-default-rtdb.firebaseio.com" style="margin-top:10px;font-size:13px;font-family:monospace" value="${CloudSync.dbUrl}">
-        <button class="btn ghost sm" id="fbSaveBtn" style="margin-top:10px">保存して接続テスト</button>
-        <div id="fb_status_msg" style="margin-top:8px;font-size:13px;color:${CloudSync.isReady()?'var(--ok)':'#888'}">${CloudSync.isReady()?'✅ 接続設定済み':'未設定'}</div>
-      </div>
 
       <div class="card" style="margin-top:20px;border:2px solid var(--danger)">
         <h3 style="color:var(--danger)">⚠️ テストデータ全削除</h3>
@@ -1207,22 +1201,6 @@ async function viewAdmin(app){
     </div>`;
 
   $('#empMgmtBtn').onclick = ()=> go('/employees');
-
-  $('#fbSaveBtn').onclick = async ()=>{
-    const url = $('#fb_url_inp').value.trim();
-    if(!url){ toast('URLを入力してください'); return; }
-    CloudSync.dbUrl = url;
-    const msg = $('#fb_status_msg');
-    msg.textContent = '接続テスト中...'; msg.style.color='#888';
-    const {ok} = await CloudSync.syncDown();
-    if(ok){
-      msg.textContent = '✅ 接続成功！同じURLを全端末に設定してください。';
-      msg.style.color = 'var(--ok)';
-    } else {
-      msg.textContent = '❌ 接続失敗。URLとデータベースのルール設定を確認してください。';
-      msg.style.color = 'var(--danger)';
-    }
-  };
 
 
   $('#saveAdminPinBtn').onclick = async ()=>{
